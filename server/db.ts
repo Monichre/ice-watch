@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, sightings, votes, InsertSighting, InsertVote } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,240 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ============================================================================
+// Sightings
+// ============================================================================
+
+/**
+ * Get all sightings with optional filters
+ */
+export async function getAllSightings(options?: {
+  limit?: number;
+  offset?: number;
+  minCredibility?: number;
+  hideHidden?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+
+  let query = db.select().from(sightings);
+
+  if (options?.hideHidden) {
+    query = query.where(eq(sightings.isHidden, false)) as any;
+  }
+
+  if (options?.minCredibility !== undefined) {
+    const credFilter = sql`${sightings.credibilityScore} >= ${options.minCredibility}`;
+    query = query.where(credFilter) as any;
+  }
+
+  query = query.orderBy(desc(sightings.createdAt)) as any;
+
+  if (options?.limit) {
+    query = query.limit(options.limit) as any;
+  }
+
+  if (options?.offset) {
+    query = query.offset(options.offset) as any;
+  }
+
+  return query;
+}
+
+/**
+ * Get a single sighting by ID
+ */
+export async function getSightingById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const results = await db.select().from(sightings).where(eq(sightings.id, id));
+  return results[0] || null;
+}
+
+/**
+ * Create a new sighting
+ */
+export async function createSighting(data: InsertSighting) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(sightings).values(data);
+  return Number(result[0].insertId);
+}
+
+/**
+ * Update sighting vote counts and credibility score
+ */
+export async function updateSightingVotes(
+  sightingId: number,
+  upvotes: number,
+  downvotes: number,
+  flagCount: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Calculate credibility score
+  const totalVotes = upvotes + downvotes;
+  const credibilityScore = totalVotes > 0 ? (upvotes / totalVotes) * 100 : 0;
+
+  // Auto-hide if credibility is too low and has enough votes
+  const isHidden = totalVotes >= 5 && credibilityScore < 40;
+
+  await db
+    .update(sightings)
+    .set({
+      upvotes,
+      downvotes,
+      flagCount,
+      credibilityScore: credibilityScore.toFixed(2),
+      isHidden,
+    })
+    .where(eq(sightings.id, sightingId));
+}
+
+/**
+ * Search sightings by license plate
+ */
+export async function searchSightingsByLicensePlate(licensePlate: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(sightings)
+    .where(sql`${sightings.licensePlate} LIKE ${`%${licensePlate}%`}`)
+    .orderBy(desc(sightings.createdAt));
+}
+
+/**
+ * Get sightings near a location (within radius in kilometers)
+ */
+export async function getSightingsNearLocation(
+  latitude: number,
+  longitude: number,
+  radiusKm: number = 10
+) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Haversine formula for distance calculation
+  const distanceFormula = sql`(
+    6371 * acos(
+      cos(radians(${latitude})) *
+      cos(radians(${sightings.latitude})) *
+      cos(radians(${sightings.longitude}) - radians(${longitude})) +
+      sin(radians(${latitude})) *
+      sin(radians(${sightings.latitude}))
+    )
+  )`;
+
+  return db
+    .select({
+      id: sightings.id,
+      licensePlate: sightings.licensePlate,
+      vehicleType: sightings.vehicleType,
+      photoUrl: sightings.photoUrl,
+      latitude: sightings.latitude,
+      longitude: sightings.longitude,
+      locationAddress: sightings.locationAddress,
+      upvotes: sightings.upvotes,
+      downvotes: sightings.downvotes,
+      credibilityScore: sightings.credibilityScore,
+      createdAt: sightings.createdAt,
+      distance: distanceFormula.as("distance"),
+    })
+    .from(sightings)
+    .where(sql`${distanceFormula} <= ${radiusKm}`)
+    .orderBy(sql`distance ASC`);
+}
+
+// ============================================================================
+// Votes
+// ============================================================================
+
+/**
+ * Get a user's vote for a specific sighting
+ */
+export async function getUserVote(deviceId: string, sightingId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const results = await db
+    .select()
+    .from(votes)
+    .where(and(eq(votes.deviceId, deviceId), eq(votes.sightingId, sightingId)));
+
+  return results[0] || null;
+}
+
+/**
+ * Cast or update a vote
+ */
+export async function castVote(data: InsertVote) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Check if vote already exists
+  const existingVote = await getUserVote(data.deviceId, data.sightingId);
+
+  if (existingVote) {
+    // Update existing vote
+    await db
+      .update(votes)
+      .set({ voteType: data.voteType })
+      .where(and(eq(votes.deviceId, data.deviceId), eq(votes.sightingId, data.sightingId)));
+  } else {
+    // Insert new vote
+    await db.insert(votes).values(data);
+  }
+
+  // Recalculate sighting vote counts
+  await recalculateSightingVotes(data.sightingId);
+}
+
+/**
+ * Remove a vote
+ */
+export async function removeVote(deviceId: string, sightingId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.delete(votes).where(and(eq(votes.deviceId, deviceId), eq(votes.sightingId, sightingId)));
+
+  // Recalculate sighting vote counts
+  await recalculateSightingVotes(sightingId);
+}
+
+/**
+ * Recalculate vote counts for a sighting
+ */
+async function recalculateSightingVotes(sightingId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const allVotes = await db.select().from(votes).where(eq(votes.sightingId, sightingId));
+
+  const upvotes = allVotes.filter((v) => v.voteType === "upvote").length;
+  const downvotes = allVotes.filter((v) => v.voteType === "downvote").length;
+  const flagCount = allVotes.filter((v) => v.voteType === "flag").length;
+
+  await updateSightingVotes(sightingId, upvotes, downvotes, flagCount);
+}
+
+/**
+ * Get vote counts for a sighting
+ */
+export async function getVoteCounts(sightingId: number) {
+  const db = await getDb();
+  if (!db) return { upvotes: 0, downvotes: 0, flagCount: 0 };
+
+  const allVotes = await db.select().from(votes).where(eq(votes.sightingId, sightingId));
+
+  return {
+    upvotes: allVotes.filter((v) => v.voteType === "upvote").length,
+    downvotes: allVotes.filter((v) => v.voteType === "downvote").length,
+    flagCount: allVotes.filter((v) => v.voteType === "flag").length,
+  };
+}
