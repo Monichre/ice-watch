@@ -40,3 +40,18 @@
 - [x] Show vote count on map markers
 - [x] Show vote count on sighting detail screen
 - [x] Highlight highly-verified sightings on map
+
+## Web App Conversion
+
+- [x] Replace expo-camera with browser MediaDevices API
+- [x] Replace expo-location with browser Geolocation API
+- [x] Replace react-native-maps with Leaflet or Google Maps JS
+- [x] Convert all native components to web-compatible alternatives
+- [x] Remove tab navigation, use single-page layout with navigation
+- [x] Make layout responsive for desktop and mobile browsers
+- [x] Replace file upload with browser File API
+- [x] Test camera capture in browser
+- [x] Test GPS location in browser
+- [x] Test map display and markers
+- [x] Test voting and credibility system
+- [x] Ensure all features work without native dependencies

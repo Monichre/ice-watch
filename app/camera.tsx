@@ -1,101 +1,80 @@
 import { useState, useRef, useEffect } from "react";
 import { View, Text, Pressable, ActivityIndicator, Alert, Platform, StyleSheet } from "react-native";
-import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
-import * as Location from "expo-location";
 import { router } from "expo-router";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import * as Haptics from "expo-haptics";
 
 export default function CameraScreen() {
   const colors = useColors();
-  const [facing, setFacing] = useState<CameraType>("back");
-  const [permission, requestPermission] = useCameraPermissions();
-  const [locationPermission, setLocationPermission] = useState<Location.PermissionStatus | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  const cameraRef = useRef<CameraView>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationPermission(status);
-    })();
+    requestCameraAccess();
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    };
   }, []);
 
-  if (!permission) {
-    return (
-      <View className="flex-1 items-center justify-center bg-background">
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
+  const requestCameraAccess = async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      setStream(mediaStream);
+      setHasPermission(true);
 
-  if (!permission.granted) {
-    return (
-      <View className="flex-1 items-center justify-center bg-background p-6">
-        <Text className="text-lg text-foreground text-center mb-4">
-          Camera permission is required to capture vehicle photos
-        </Text>
-        <Pressable
-          onPress={requestPermission}
-          className="bg-primary px-6 py-3 rounded-full"
-          style={({ pressed }: { pressed: boolean }) => ({ opacity: pressed ? 0.8 : 1 })}
-        >
-          <Text className="text-white font-semibold">Grant Permission</Text>
-        </Pressable>
-      </View>
-    );
-  }
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+    } catch (error) {
+      console.error("Camera access error:", error);
+      setHasPermission(false);
+    }
+  };
 
   const handleCapture = async () => {
-    if (!cameraRef.current || isCapturing) return;
+    if (!videoRef.current || !canvasRef.current || isCapturing) return;
+
+    setIsCapturing(true);
 
     try {
-      setIsCapturing(true);
+      // Capture frame from video
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx?.drawImage(video, 0, 0);
 
-      if (Platform.OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      }
-
-      // Capture photo
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-        base64: true,
-        exif: true,
-      });
-
-      if (!photo) {
-        throw new Error("Failed to capture photo");
-      }
+      // Convert to base64
+      const photoBase64 = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+      const photoUri = canvas.toDataURL("image/jpeg", 0.8);
 
       // Get current location
       let location = null;
       let locationAccuracy = null;
 
-      if (locationPermission === Location.PermissionStatus.GRANTED) {
-        try {
-          const loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
           });
-          location = {
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          };
-          locationAccuracy = loc.coords.accuracy;
-        } catch (error) {
-          console.warn("Failed to get location:", error);
-        }
-      }
+        });
 
-      // Try to extract GPS from EXIF if location not available
-      if (!location && photo.exif) {
-        const { GPSLatitude, GPSLongitude } = photo.exif as any;
-        if (GPSLatitude && GPSLongitude) {
-          location = {
-            latitude: GPSLatitude,
-            longitude: GPSLongitude,
-          };
-        }
+        location = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+        locationAccuracy = position.coords.accuracy;
+      } catch (error) {
+        console.warn("Failed to get location:", error);
       }
 
       if (!location) {
@@ -112,12 +91,12 @@ export default function CameraScreen() {
       router.push({
         pathname: "/submit" as any,
         params: {
-          photoUri: photo.uri,
-          photoBase64: photo.base64 || "",
+          photoUri,
+          photoBase64,
           latitude: location.latitude.toString(),
           longitude: location.longitude.toString(),
           locationAccuracy: locationAccuracy?.toString() || "",
-          exifData: JSON.stringify(photo.exif || {}),
+          exifData: JSON.stringify({}),
         },
       });
     } catch (error) {
@@ -129,15 +108,52 @@ export default function CameraScreen() {
   };
 
   const handleClose = () => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
     }
     router.back();
   };
 
+  if (hasPermission === null) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background">
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (hasPermission === false) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background p-6">
+        <Text className="text-lg text-foreground text-center mb-4">
+          Camera permission is required to capture vehicle photos
+        </Text>
+        <Pressable
+          onPress={requestCameraAccess}
+          className="bg-primary px-6 py-3 rounded-full"
+          style={(state) => ({ opacity: state.pressed ? 0.8 : 1 })}
+        >
+          <Text className="text-white font-semibold">Grant Permission</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <View className="flex-1 bg-black">
-      <CameraView ref={cameraRef} style={{ flex: 1 }} facing={facing}>
+      <div style={{ position: "relative", width: "100%", height: "100%" }}>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          }}
+        />
+        <canvas ref={canvasRef} style={{ display: "none" }} />
+
         {/* Top bar */}
         <View className="absolute top-0 left-0 right-0 pt-12 px-4 flex-row items-center justify-between">
           <Pressable
@@ -153,17 +169,13 @@ export default function CameraScreen() {
           {/* GPS status indicator */}
           <View
             style={{
-              backgroundColor: locationPermission === Location.PermissionStatus.GRANTED
-                ? "rgba(34, 197, 94, 0.8)"
-                : "rgba(239, 68, 68, 0.8)",
+              backgroundColor: "rgba(34, 197, 94, 0.8)",
               paddingHorizontal: 12,
               paddingVertical: 6,
               borderRadius: 16,
             }}
           >
-            <Text className="text-white text-xs font-semibold">
-              {locationPermission === Location.PermissionStatus.GRANTED ? "GPS Active" : "GPS Off"}
-            </Text>
+            <Text className="text-white text-xs font-semibold">Camera Active</Text>
           </View>
 
           <View style={{ width: 48 }} />
@@ -201,7 +213,7 @@ export default function CameraScreen() {
             {isCapturing ? "Capturing..." : "Capture Vehicle"}
           </Text>
         </View>
-      </CameraView>
+      </div>
     </View>
   );
 }

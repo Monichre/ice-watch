@@ -11,7 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import * as Location from "expo-location";
+// Location API handled by browser Geolocation API
 import * as Haptics from "expo-haptics";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -40,23 +40,15 @@ export default function SubmitScreen() {
   const createSightingMutation = trpc.sightings.create.useMutation();
 
   useEffect(() => {
-    // Reverse geocode to get address
+    // Use Nominatim for reverse geocoding
     (async () => {
       try {
-        const addresses = await Location.reverseGeocodeAsync({
-          latitude,
-          longitude,
-        });
-
-        if (addresses && addresses.length > 0) {
-          const addr = addresses[0];
-          const parts = [
-            addr.street,
-            addr.city,
-            addr.region,
-            addr.postalCode,
-          ].filter(Boolean);
-          setLocationAddress(parts.join(", ") || "Unknown location");
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+        );
+        const data = await response.json();
+        if (data.display_name) {
+          setLocationAddress(data.display_name);
         } else {
           setLocationAddress(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
         }

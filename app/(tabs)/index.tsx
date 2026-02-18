@@ -1,13 +1,11 @@
-import { useState, useEffect, useRef } from "react";
-import { View, Text, Pressable, ActivityIndicator, Alert, Platform, StyleSheet } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
-import * as Location from "expo-location";
+import { useState, useEffect } from "react";
+import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
 import { router } from "expo-router";
-import * as Haptics from "expo-haptics";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { LeafletMap } from "@/components/leaflet-map";
 
 type MarkerData = {
   id: number;
@@ -22,8 +20,6 @@ type MarkerData = {
 
 export default function MapScreen() {
   const colors = useColors();
-  const mapRef = useRef<MapView>(null);
-  const [locationPermission, setLocationPermission] = useState<Location.PermissionStatus | null>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [selectedMarker, setSelectedMarker] = useState<MarkerData | null>(null);
 
@@ -33,24 +29,20 @@ export default function MapScreen() {
   });
 
   useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationPermission(status);
-
-      if (status === Location.PermissionStatus.GRANTED) {
-        try {
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
+    // Get user location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
           setUserLocation({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
           });
-        } catch (error) {
+        },
+        (error) => {
           console.warn("Failed to get location:", error);
         }
-      }
-    })();
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -63,24 +55,15 @@ export default function MapScreen() {
   }, [refetch]);
 
   const handleCameraPress = () => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
     router.push("/camera" as any);
   };
 
   const handleRefresh = () => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
     refetch();
   };
 
-  const handleMarkerPress = (marker: MarkerData) => {
+  const handleMarkerClick = (marker: MarkerData) => {
     setSelectedMarker(marker);
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
   };
 
   const getMarkerColor = (credibilityScore: string): string => {
@@ -102,19 +85,9 @@ export default function MapScreen() {
       downvotes: s.downvotes,
     })) || [];
 
-  const initialRegion = userLocation
-    ? {
-        latitude: userLocation.latitude,
-        longitude: userLocation.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      }
-    : {
-        latitude: 37.7749,
-        longitude: -122.4194,
-        latitudeDelta: 0.1,
-        longitudeDelta: 0.1,
-      };
+  const mapCenter: [number, number] = userLocation
+    ? [userLocation.latitude, userLocation.longitude]
+    : [37.7749, -122.4194];
 
   return (
     <ScreenContainer edges={["top", "left", "right"]}>
@@ -126,26 +99,16 @@ export default function MapScreen() {
             <Text className="text-muted mt-4">Loading map...</Text>
           </View>
         ) : (
-          <MapView
-            ref={mapRef}
-            provider={PROVIDER_GOOGLE}
-            style={StyleSheet.absoluteFillObject}
-            initialRegion={initialRegion}
-            showsUserLocation={locationPermission === Location.PermissionStatus.GRANTED}
-            showsMyLocationButton={false}
-          >
-            {markers.map((marker) => (
-              <Marker
-                key={marker.id}
-                coordinate={{
-                  latitude: marker.latitude,
-                  longitude: marker.longitude,
-                }}
-                pinColor={getMarkerColor(marker.credibilityScore)}
-                onPress={() => handleMarkerPress(marker)}
-              />
-            ))}
-          </MapView>
+          <div style={{ position: "relative", width: "100%", height: "100%" }}>
+            <LeafletMap
+              markers={markers}
+              center={mapCenter}
+              zoom={13}
+              onMarkerClick={handleMarkerClick}
+              showUserLocation={true}
+              userLocation={userLocation}
+            />
+          </div>
         )}
 
         {/* Top Bar */}

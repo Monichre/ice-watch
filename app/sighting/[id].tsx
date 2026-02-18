@@ -8,16 +8,14 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  StyleSheet,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
-import * as Haptics from "expo-haptics";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { getDeviceId } from "@/lib/device-id";
+import { LeafletMap } from "@/components/leaflet-map";
 
 export default function SightingDetailScreen() {
   const colors = useColors();
@@ -50,10 +48,6 @@ export default function SightingDetailScreen() {
   const handleVote = async (voteType: "upvote" | "downvote" | "flag") => {
     if (!deviceId) return;
 
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-
     try {
       // Toggle vote if clicking same button
       if (userVote === voteType) {
@@ -70,10 +64,6 @@ export default function SightingDetailScreen() {
 
       // Refetch to get updated counts
       setTimeout(() => refetch(), 500);
-
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
     } catch (error) {
       console.error("Vote error:", error);
       Alert.alert("Error", "Failed to submit vote. Please try again.");
@@ -81,9 +71,6 @@ export default function SightingDetailScreen() {
   };
 
   const handleBack = () => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
     router.back();
   };
 
@@ -258,34 +245,32 @@ export default function SightingDetailScreen() {
             )}
 
             {/* Map Preview */}
-            <View
+            <div
               style={{
                 height: 200,
                 borderRadius: 12,
                 overflow: "hidden",
                 marginTop: 8,
+                position: "relative",
               }}
             >
-              <MapView
-                provider={PROVIDER_GOOGLE}
-                style={StyleSheet.absoluteFillObject}
-                initialRegion={{
-                  latitude,
-                  longitude,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                }}
-                scrollEnabled={false}
-                zoomEnabled={false}
-                pitchEnabled={false}
-                rotateEnabled={false}
-              >
-                <Marker
-                  coordinate={{ latitude, longitude }}
-                  pinColor={getCredibilityColor(credibility)}
-                />
-              </MapView>
-            </View>
+              <LeafletMap
+                markers={[
+                  {
+                    id: sighting.id,
+                    latitude,
+                    longitude,
+                    licensePlate: sighting.licensePlate,
+                    vehicleType: sighting.vehicleType,
+                    credibilityScore: sighting.credibilityScore as string,
+                    upvotes: sighting.upvotes,
+                    downvotes: sighting.downvotes,
+                  },
+                ]}
+                center={[latitude, longitude]}
+                zoom={15}
+              />
+            </div>
           </View>
 
           {/* Notes */}
