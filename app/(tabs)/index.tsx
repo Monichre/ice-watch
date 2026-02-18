@@ -66,6 +66,10 @@ export default function MapScreen() {
     setSelectedMarker(marker);
   };
 
+  const handleViewPlateTracking = (licensePlate: string) => {
+    router.push(`/plate/${encodeURIComponent(licensePlate)}` as any);
+  };
+
   const getMarkerColor = (credibilityScore: string): string => {
     const score = parseFloat(credibilityScore);
     if (score >= 70) return "#22C55E"; // Green
@@ -206,21 +210,39 @@ export default function MapScreen() {
               </Text>
             </View>
 
-            <Pressable
-              onPress={() => {
-                router.push(`/sighting/${selectedMarker.id}` as any);
-              }}
-              style={(state) => ({
-                marginTop: 12,
-                backgroundColor: colors.primary,
-                paddingVertical: 10,
-                borderRadius: 8,
-                alignItems: "center",
-                opacity: state.pressed ? 0.8 : 1,
-              })}
-            >
-              <Text className="text-white font-semibold">View Details</Text>
-            </Pressable>
+            <View className="flex-row gap-2 mt-3">
+              <Pressable
+                onPress={() => handleViewPlateTracking(selectedMarker.licensePlate)}
+                style={(state) => ({
+                  flex: 1,
+                  backgroundColor: colors.surface,
+                  paddingVertical: 10,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  alignItems: "center",
+                  opacity: state.pressed ? 0.8 : 1,
+                })}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Track Plate</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  router.push(`/sighting/${selectedMarker.id}` as any);
+                }}
+                style={(state) => ({
+                  flex: 1,
+                  backgroundColor: colors.primary,
+                  paddingVertical: 10,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  opacity: state.pressed ? 0.8 : 1,
+                })}
+              >
+                <Text className="text-white font-semibold">View Details</Text>
+              </Pressable>
+            </View>
           </View>
         )}
 

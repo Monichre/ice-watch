@@ -5,6 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 import { storagePut } from "./storage";
+import { invokeLLM } from "./_core/llm";
 
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -101,6 +102,74 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         return db.getSightingsNearLocation(input.latitude, input.longitude, input.radiusKm);
+      }),
+  }),
+
+  // License Plate Recognition
+  alpr: router({
+    extractPlate: publicProcedure
+      .input(z.object({ imageUrl: z.string().url() }))
+      .mutation(async ({ input }) => {
+        try {
+          const response = await invokeLLM({
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: "Extract the license plate number from this image. Return ONLY the plate number with no spaces, dashes, or other characters. If you cannot find a clear license plate, return 'UNKNOWN'.",
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: input.imageUrl,
+                      detail: "high",
+                    },
+                  },
+                ],
+              },
+            ],
+          });
+
+          const content = response.choices[0]?.message?.content;
+          const plateText = (typeof content === "string" ? content.trim() : "UNKNOWN") || "UNKNOWN";
+          
+          // Normalize plate: uppercase, remove spaces/dashes
+          const normalizedPlate = plateText.toUpperCase().replace(/[^A-Z0-9]/g, "");
+          
+          return {
+            plate: normalizedPlate === "UNKNOWN" ? "" : normalizedPlate,
+            confidence: normalizedPlate === "UNKNOWN" ? 0 : 0.85,
+            raw: plateText,
+          };
+        } catch (error) {
+          console.error("ALPR error:", error);
+          return {
+            plate: "",
+            confidence: 0,
+            raw: "ERROR",
+          };
+        }
+      }),
+  }),
+
+  // Plate tracking routes
+  plates: router({
+    // Get all sightings for a specific plate
+    getByPlate: publicProcedure
+      .input(z.object({ licensePlate: z.string().min(1) }))
+      .query(async ({ input }) => {
+        // Normalize the search plate
+        const normalizedPlate = input.licensePlate.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        return db.searchSightingsByLicensePlate(normalizedPlate);
+      }),
+
+    // Get list of all tracked plates with sighting counts
+    listAll: publicProcedure
+      .input(z.object({ limit: z.number().min(1).max(100).optional() }).optional())
+      .query(async ({ input }) => {
+        return db.getAllTrackedPlates(input?.limit);
       }),
   }),
 

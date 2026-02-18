@@ -55,3 +55,26 @@
 - [x] Test map display and markers
 - [x] Test voting and credibility system
 - [x] Ensure all features work without native dependencies
+
+## License Plate Recognition (ALPR)
+
+- [x] Create backend API endpoint for OCR/vision analysis
+- [x] Integrate AI vision to extract text from photos
+- [x] Parse and validate license plate format
+- [x] Auto-fill license plate field in submission form
+- [x] Add manual override option for incorrect detections
+- [x] Show confidence score for extracted plate
+- [ ] Handle multiple plates in single photo
+- [ ] Test with various plate formats and angles
+
+## Real-Time Plate Tracking
+
+- [x] Normalize plate numbers for canonical tracking
+- [x] Create API endpoint to get all sightings by plate
+- [x] Build plate detail view showing timeline of sightings
+- [x] Add map view showing all locations for a plate
+- [x] Display movement history with timestamps
+- [x] Show total sightings count per plate
+- [x] Add ability to click plate on map to see its history
+- [ ] Implement search by plate number
+- [ ] Show most recently tracked plates

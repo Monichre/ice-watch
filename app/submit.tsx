@@ -30,6 +30,10 @@ export default function SubmitScreen() {
   const [notes, setNotes] = useState("");
   const [locationAddress, setLocationAddress] = useState("Loading address...");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isExtractingPlate, setIsExtractingPlate] = useState(false);
+  const [plateConfidence, setPlateConfidence] = useState<number | null>(null);
+
+  const extractPlateMutation = trpc.alpr.extractPlate.useMutation();
 
   const photoUri = params.photoUri as string;
   const photoBase64 = params.photoBase64 as string;
@@ -58,6 +62,39 @@ export default function SubmitScreen() {
       }
     })();
   }, [latitude, longitude]);
+
+  // Auto-extract license plate on mount
+  useEffect(() => {
+    if (!photoUri) return;
+
+    (async () => {
+      setIsExtractingPlate(true);
+      try {
+        // First upload the photo to get a public URL
+        const deviceId = await getDeviceId();
+        const photoBuffer = Buffer.from(photoBase64, "base64");
+        const timestamp = Date.now();
+        const fileName = `temp/${deviceId}-${timestamp}.jpg`;
+        
+        // We need to use the storagePut function, but it's server-side only
+        // Instead, we'll pass the base64 data URL
+        const dataUrl = `data:image/jpeg;base64,${photoBase64}`;
+        
+        const result = await extractPlateMutation.mutateAsync({
+          imageUrl: dataUrl,
+        });
+
+        if (result.plate) {
+          setLicensePlate(result.plate);
+          setPlateConfidence(result.confidence);
+        }
+      } catch (error) {
+        console.warn("Failed to extract plate:", error);
+      } finally {
+        setIsExtractingPlate(false);
+      }
+    })();
+  }, [photoUri]);
 
   const handleSubmit = async () => {
     if (!licensePlate.trim()) {
@@ -153,12 +190,28 @@ export default function SubmitScreen() {
 
           {/* License Plate Input */}
           <View className="gap-2">
-            <Text className="text-sm font-semibold text-foreground">
-              License Plate <Text className="text-error">*</Text>
-            </Text>
+            <View className="flex-row items-center justify-between">
+              <Text className="text-sm font-semibold text-foreground">
+                License Plate <Text className="text-error">*</Text>
+              </Text>
+              {isExtractingPlate && (
+                <View className="flex-row items-center gap-2">
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text className="text-xs text-muted">Detecting plate...</Text>
+                </View>
+              )}
+              {plateConfidence !== null && plateConfidence > 0 && (
+                <Text className="text-xs text-success">
+                  ✓ Auto-detected ({Math.round(plateConfidence * 100)}%)
+                </Text>
+              )}
+            </View>
             <TextInput
               value={licensePlate}
-              onChangeText={setLicensePlate}
+              onChangeText={(text) => {
+                setLicensePlate(text);
+                setPlateConfidence(null); // Clear confidence when manually edited
+              }}
               placeholder="Enter plate number"
               placeholderTextColor={colors.muted}
               autoCapitalize="characters"
@@ -167,6 +220,11 @@ export default function SubmitScreen() {
               className="bg-surface border border-border rounded-lg px-4 py-3 text-foreground text-lg font-mono"
               style={{ color: colors.foreground }}
             />
+            {plateConfidence !== null && plateConfidence > 0 && (
+              <Text className="text-xs text-muted">
+                AI detected this plate. You can edit if incorrect.
+              </Text>
+            )}
           </View>
 
           {/* Vehicle Type Picker */}

@@ -326,3 +326,25 @@ export async function getVoteCounts(sightingId: number) {
     flagCount: allVotes.filter((v) => v.voteType === "flag").length,
   };
 }
+
+/**
+ * Get all tracked plates with sighting counts
+ */
+export async function getAllTrackedPlates(limit: number = 50) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const result = await db
+    .select({
+      licensePlate: sightings.licensePlate,
+      sightingCount: sql<number>`COUNT(*)`,
+      lastSeen: sql<Date>`MAX(${sightings.createdAt})`,
+      avgCredibility: sql<number>`AVG(${sightings.credibilityScore})`,
+    })
+    .from(sightings)
+    .groupBy(sightings.licensePlate)
+    .orderBy(sql`lastSeen DESC`)
+    .limit(limit);
+
+  return result;
+}
