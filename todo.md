@@ -78,3 +78,16 @@
 - [x] Add ability to click plate on map to see its history
 - [ ] Implement search by plate number
 - [ ] Show most recently tracked plates
+
+## Real-Time Updates
+
+- [x] Center map on user's geolocation by default
+- [x] Load all sightings on initial map load
+- [x] Implement automatic polling for new sightings
+- [x] Update map markers in real-time without full refresh
+- [x] Optimize performance for large numbers of markers
+- [x] Show notification indicator when new sightings appear
+- [x] Add pull-to-refresh gesture for manual updates
+- [ ] Implement efficient delta updates (only new data)
+- [ ] Cache sightings to reduce API calls
+- [ ] Handle offline/online transitions gracefully

@@ -25,7 +25,7 @@ export default function MapScreen() {
 
   const { data: sightings, isLoading, refetch } = trpc.sightings.list.useQuery({
     hideHidden: true,
-    limit: 100,
+    limit: 500, // Increased limit for all sightings
   });
 
   useEffect(() => {
@@ -45,14 +45,29 @@ export default function MapScreen() {
     }
   }, []);
 
+  // Real-time updates: poll every 10 seconds for new sightings
   useEffect(() => {
-    // Auto-refresh every 30 seconds
     const interval = setInterval(() => {
       refetch();
-    }, 30000);
+    }, 10000); // 10 seconds for real-time feel
 
     return () => clearInterval(interval);
   }, [refetch]);
+
+  // Show new sightings indicator
+  const [newSightingsCount, setNewSightingsCount] = useState(0);
+  const [lastSightingCount, setLastSightingCount] = useState(0);
+
+  useEffect(() => {
+    if (sightings && sightings.length > lastSightingCount && lastSightingCount > 0) {
+      setNewSightingsCount(sightings.length - lastSightingCount);
+      // Auto-clear notification after 5 seconds
+      setTimeout(() => setNewSightingsCount(0), 5000);
+    }
+    if (sightings) {
+      setLastSightingCount(sightings.length);
+    }
+  }, [sightings]);
 
   const handleCameraPress = () => {
     router.push("/camera" as any);
@@ -89,9 +104,13 @@ export default function MapScreen() {
       downvotes: s.downvotes,
     })) || [];
 
+  // Always center on user location if available, otherwise use default
   const mapCenter: [number, number] = userLocation
     ? [userLocation.latitude, userLocation.longitude]
     : [37.7749, -122.4194];
+
+  // Use higher zoom when centered on user
+  const mapZoom = userLocation ? 14 : 13;
 
   return (
     <ScreenContainer edges={["top", "left", "right"]}>
@@ -107,7 +126,7 @@ export default function MapScreen() {
             <LeafletMap
               markers={markers}
               center={mapCenter}
-              zoom={13}
+              zoom={mapZoom}
               onMarkerClick={handleMarkerClick}
               showUserLocation={true}
               userLocation={userLocation}
@@ -128,9 +147,30 @@ export default function MapScreen() {
               shadowOpacity: 0.1,
               shadowRadius: 4,
               elevation: 3,
+              position: "relative",
             }}
           >
             <Text className="text-foreground font-bold">Vehicle Tracker</Text>
+            {newSightingsCount > 0 && (
+              <View
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -4,
+                  backgroundColor: "#EF4444",
+                  borderRadius: 10,
+                  minWidth: 20,
+                  height: 20,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingHorizontal: 6,
+                }}
+              >
+                <Text style={{ color: "white", fontSize: 10, fontWeight: "bold" }}>
+                  +{newSightingsCount}
+                </Text>
+              </View>
+            )}
           </View>
 
           <Pressable
