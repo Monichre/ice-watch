@@ -49,6 +49,15 @@ export const sightings = mysqlTable("sightings", {
   notes: text("notes"),
   photoMetadata: text("photoMetadata"), // JSON string of EXIF data
   deviceId: varchar("deviceId", { length: 64 }), // Anonymous device identifier for tracking submissions
+  // AI-extracted fields
+  agencyType: varchar("agencyType", { length: 20 }), // ICE, CBP, DHS, FBI, DEA, ATF, USMS, Other
+  agencyMarkings: text("agencyMarkings"), // Visible agency text/logos
+  vehicleMake: varchar("vehicleMake", { length: 50 }),
+  vehicleModel: varchar("vehicleModel", { length: 50 }),
+  vehicleColor: varchar("vehicleColor", { length: 30 }),
+  badgeNumber: varchar("badgeNumber", { length: 30 }), // Visible badge/unit number
+  uniformDescription: text("uniformDescription"), // Visible uniform/tactical gear
+  aiConfidence: decimal("aiConfidence", { precision: 4, scale: 3 }), // AI analysis confidence 0-1
   upvotes: int("upvotes").default(0).notNull(),
   downvotes: int("downvotes").default(0).notNull(),
   flagCount: int("flagCount").default(0).notNull(),

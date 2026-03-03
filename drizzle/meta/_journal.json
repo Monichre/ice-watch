@@ -15,6 +15,13 @@
       "when": 1769057187995,
       "tag": "0001_lowly_obadiah_stane",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1772556097432,
+      "tag": "0002_gigantic_synch",
+      "breakpoints": true
     }
   ]
 }

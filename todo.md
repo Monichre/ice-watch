@@ -91,3 +91,45 @@
 - [ ] Implement efficient delta updates (only new data)
 - [ ] Cache sightings to reduce API calls
 - [ ] Handle offline/online transitions gracefully
+
+## UI Beautification
+
+- [x] Dark map tile theme (CartoDB Dark Matter)
+- [x] Custom SVG map markers by credibility and vehicle type
+- [x] Marker clustering for dense areas
+- [x] Animated pulse rings on recent markers
+- [x] Camera screen license plate targeting overlay frame
+- [x] Bottom-sheet submission form over photo preview
+- [x] Sighting cards with thumbnail, credibility bar, distance, time-ago
+- [ ] Swipe-to-vote on sighting list items
+- [x] Plate tracking visual timeline with connecting lines and directional arrows
+
+## AI Enhancements
+
+- [x] Vehicle make/model identification from photo
+- [x] Agency identification from markings and insignia
+- [x] Uniform and insignia classification (CBP, ICE, DHS, etc.)
+- [x] Badge number extraction from photos
+- [ ] Auto-redaction of bystander faces in uploaded photos
+- [ ] Anomaly detection for implausible movement patterns
+
+## Search & Discovery
+
+- [x] Global plate search bar on map screen
+- [x] Nearby filter with user-defined radius
+- [x] Trending plates screen (most sightings in 24h)
+- [x] Distance indicator on sighting cards
+
+## Notifications & Alerts
+
+- [x] Browser push notifications for watched plates
+- [ ] Proximity alerts for sightings near user location
+- [x] Watch/unwatch a specific plate
+
+## Advanced Features
+
+- [x] Heatmap layer toggle on map
+- [x] Convoy detection (multiple vehicles moving together)
+- [ ] Shareable links for sightings and plate history
+- [ ] CSV/JSON export for plate history
+- [ ] Embeddable map widget

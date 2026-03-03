@@ -1,21 +1,33 @@
 import { useState, useEffect } from "react";
 import {
-  View,
-  Text,
-  ScrollView,
-  Image,
-  Pressable,
-  ActivityIndicator,
-  Alert,
-  Platform,
+  View, Text, ScrollView, Image, Pressable,
+  ActivityIndicator, Alert, StyleSheet, Share,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { getDeviceId } from "@/lib/device-id";
 import { LeafletMap } from "@/components/leaflet-map";
+
+const AGENCY_COLORS: Record<string, string> = {
+  ICE: "#EF4444", CBP: "#F59E0B", DHS: "#8B5CF6",
+  FBI: "#3B82F6", DEA: "#10B981", ATF: "#F97316",
+  USMS: "#EC4899", Other: "#6B7280",
+};
+
+function getCredColor(score: number) {
+  if (score >= 70) return "#22C55E";
+  if (score >= 40) return "#F59E0B";
+  return "#EF4444";
+}
+
+function getCredLabel(score: number) {
+  if (score >= 80) return "High Confidence";
+  if (score >= 60) return "Likely Accurate";
+  if (score >= 40) return "Unverified";
+  return "Disputed";
+}
 
 export default function SightingDetailScreen() {
   const colors = useColors();
@@ -33,52 +45,42 @@ export default function SightingDetailScreen() {
   const castVoteMutation = trpc.votes.cast.useMutation();
 
   useEffect(() => {
-    (async () => {
-      const id = await getDeviceId();
-      setDeviceId(id);
-    })();
+    (async () => { setDeviceId(await getDeviceId()); })();
   }, []);
 
   useEffect(() => {
-    if (existingVote) {
-      setUserVote(existingVote.voteType);
-    }
+    if (existingVote) setUserVote(existingVote.voteType);
   }, [existingVote]);
 
   const handleVote = async (voteType: "upvote" | "downvote" | "flag") => {
     if (!deviceId) return;
-
     try {
-      // Toggle vote if clicking same button
-      if (userVote === voteType) {
-        // Remove vote (not implemented in backend yet, so just update locally)
-        setUserVote(null);
-      } else {
-        await castVoteMutation.mutateAsync({
-          deviceId,
-          sightingId,
-          voteType,
-        });
+      if (userVote !== voteType) {
+        await castVoteMutation.mutateAsync({ deviceId, sightingId, voteType });
         setUserVote(voteType);
+      } else {
+        setUserVote(null);
       }
-
-      // Refetch to get updated counts
       setTimeout(() => refetch(), 500);
-    } catch (error) {
-      console.error("Vote error:", error);
+    } catch {
       Alert.alert("Error", "Failed to submit vote. Please try again.");
     }
   };
 
-  const handleBack = () => {
-    router.back();
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: `Vehicle sighting: ${sighting?.licensePlate} — ${sighting?.locationAddress || "GPS coordinates"}. Reported on ICE Tracker.`,
+        url: typeof window !== "undefined" ? window.location.href : "",
+      });
+    } catch {}
   };
 
   if (isLoading || !sighting) {
     return (
-      <ScreenContainer>
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
+      <ScreenContainer containerClassName="bg-[#0d0d1a]">
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator size="large" color="#3B82F6" />
         </View>
       </ScreenContainer>
     );
@@ -88,209 +90,317 @@ export default function SightingDetailScreen() {
   const totalVotes = sighting.upvotes + sighting.downvotes;
   const latitude = parseFloat(sighting.latitude as string);
   const longitude = parseFloat(sighting.longitude as string);
+  const credColor = getCredColor(credibility);
+  const agencyColor = (sighting as any).agencyType
+    ? (AGENCY_COLORS[(sighting as any).agencyType] || "#6B7280")
+    : null;
 
-  const getCredibilityColor = (score: number): string => {
-    if (score >= 70) return "#22C55E";
-    if (score >= 40) return "#F59E0B";
-    return "#EF4444";
-  };
+  // "Confirmed by multiple sources" if upvotes >= 3 and credibility >= 60
+  const isConfirmed = sighting.upvotes >= 3 && credibility >= 60;
 
   return (
-    <ScreenContainer>
-      <ScrollView className="flex-1">
-        {/* Header */}
-        <View className="flex-row items-center justify-between p-4 border-b border-border">
-          <Pressable
-            onPress={handleBack}
-            style={(state) => ({ opacity: state.pressed ? 0.6 : 1 })}
-          >
-            <IconSymbol name="chevron.left" size={28} color={colors.foreground} />
+    <ScreenContainer containerClassName="bg-[#0d0d1a]">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
+
+        {/* ── Header ── */}
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+            <Text style={styles.backBtn}>← Back</Text>
           </Pressable>
-          <Text className="text-xl font-bold text-foreground">Sighting Details</Text>
-          <View style={{ width: 28 }} />
+          <Text style={styles.headerTitle}>Sighting</Text>
+          <Pressable onPress={handleShare} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+            <Text style={styles.shareBtn}>Share ↗</Text>
+          </Pressable>
         </View>
 
-        {/* Photo */}
-        <Image
-          source={{ uri: sighting.photoUrl }}
-          style={{
-            width: "100%",
-            height: 300,
-            backgroundColor: colors.surface,
-          }}
-          resizeMode="cover"
-        />
+        {/* ── Photo ── */}
+        <View style={{ position: "relative" }}>
+          <Image
+            source={{ uri: sighting.photoUrl }}
+            style={styles.photo}
+            resizeMode="cover"
+          />
+          {/* Agency overlay on photo */}
+          {(sighting as any).agencyType && agencyColor && (
+            <View style={[styles.photoAgencyBadge, { backgroundColor: agencyColor + "cc" }]}>
+              <Text style={styles.photoAgencyText}>{(sighting as any).agencyType}</Text>
+            </View>
+          )}
+          {isConfirmed && (
+            <View style={styles.confirmedBadge}>
+              <Text style={styles.confirmedText}>✓ CONFIRMED</Text>
+            </View>
+          )}
+        </View>
 
-        <View className="p-4 gap-6">
-          {/* License Plate */}
-          <View>
-            <Text className="text-3xl font-bold text-foreground font-mono text-center">
-              {sighting.licensePlate}
-            </Text>
-            {sighting.vehicleType && (
-              <Text className="text-center text-muted mt-2">{sighting.vehicleType}</Text>
+        <View style={styles.body}>
+
+          {/* ── Plate + vehicle info ── */}
+          <View style={styles.plateSection}>
+            <Text style={styles.plateText}>{sighting.licensePlate}</Text>
+            {(sighting as any).vehicleColor && (sighting as any).vehicleMake && (
+              <Text style={styles.vehicleSubtitle}>
+                {(sighting as any).vehicleColor} {(sighting as any).vehicleMake}{" "}
+                {(sighting as any).vehicleModel || ""}
+              </Text>
+            )}
+            {sighting.vehicleType && !(sighting as any).vehicleMake && (
+              <Text style={styles.vehicleSubtitle}>{sighting.vehicleType}</Text>
             )}
           </View>
 
-          {/* Credibility Score */}
-          <View className="items-center">
-            <View
-              style={{
-                paddingHorizontal: 20,
-                paddingVertical: 10,
-                borderRadius: 16,
-                backgroundColor: getCredibilityColor(credibility) + "20",
-              }}
-            >
-              <Text
-                style={{
-                  color: getCredibilityColor(credibility),
-                  fontWeight: "700",
-                  fontSize: 18,
-                }}
-              >
-                {credibility.toFixed(0)}% Verified
-              </Text>
+          {/* ── Credibility panel ── */}
+          <View style={[styles.credPanel, { borderColor: credColor + "44" }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <Text style={styles.credPanelTitle}>Community Credibility</Text>
+              <Text style={[styles.credScore, { color: credColor }]}>{credibility.toFixed(0)}%</Text>
             </View>
-            <Text className="text-xs text-muted mt-2">
-              {sighting.upvotes} upvotes • {sighting.downvotes} downvotes • {totalVotes} total
-            </Text>
+            {/* Credibility bar */}
+            <View style={styles.credBarBg}>
+              <View style={[styles.credBarFill, { width: `${credibility}%` as any, backgroundColor: credColor }]} />
+            </View>
+            <Text style={[styles.credLabel, { color: credColor }]}>{getCredLabel(credibility)}</Text>
+            <View style={styles.voteCountRow}>
+              <Text style={styles.voteCount}>✓ {sighting.upvotes} verified</Text>
+              <Text style={styles.voteCount}>✗ {sighting.downvotes} disputed</Text>
+              <Text style={styles.voteCount}>🚩 {sighting.flagCount} flagged</Text>
+            </View>
+            {isConfirmed && (
+              <View style={styles.confirmedPill}>
+                <Text style={styles.confirmedPillText}>✓ Confirmed by multiple sources</Text>
+              </View>
+            )}
           </View>
 
-          {/* Voting Buttons */}
-          <View className="flex-row gap-3">
+          {/* ── Voting buttons ── */}
+          <View style={styles.voteRow}>
             <Pressable
               onPress={() => handleVote("upvote")}
-              style={(state) => ({
-                flex: 1,
-                paddingVertical: 12,
-                borderRadius: 12,
-                backgroundColor: userVote === "upvote" ? "#22C55E" : colors.surface,
-                borderWidth: 2,
-                borderColor: userVote === "upvote" ? "#22C55E" : colors.border,
-                alignItems: "center",
-                opacity: state.pressed ? 0.7 : 1,
-              })}
+              style={({ pressed }) => [
+                styles.voteBtn,
+                userVote === "upvote" && { backgroundColor: "#22C55E", borderColor: "#22C55E" },
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
             >
-              <Text
-                style={{
-                  color: userVote === "upvote" ? "white" : colors.foreground,
-                  fontWeight: "600",
-                }}
-              >
-                ✓ Verified
-              </Text>
+              <Text style={[styles.voteBtnText, userVote === "upvote" && { color: "#fff" }]}>✓ Verified</Text>
             </Pressable>
-
             <Pressable
               onPress={() => handleVote("downvote")}
-              style={(state) => ({
-                flex: 1,
-                paddingVertical: 12,
-                borderRadius: 12,
-                backgroundColor: userVote === "downvote" ? "#EF4444" : colors.surface,
-                borderWidth: 2,
-                borderColor: userVote === "downvote" ? "#EF4444" : colors.border,
-                alignItems: "center",
-                opacity: state.pressed ? 0.7 : 1,
-              })}
+              style={({ pressed }) => [
+                styles.voteBtn,
+                userVote === "downvote" && { backgroundColor: "#EF4444", borderColor: "#EF4444" },
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
             >
-              <Text
-                style={{
-                  color: userVote === "downvote" ? "white" : colors.foreground,
-                  fontWeight: "600",
-                }}
-              >
-                ✗ Inaccurate
-              </Text>
+              <Text style={[styles.voteBtnText, userVote === "downvote" && { color: "#fff" }]}>✗ Inaccurate</Text>
             </Pressable>
-
             <Pressable
               onPress={() => handleVote("flag")}
-              style={(state) => ({
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                borderRadius: 12,
-                backgroundColor: userVote === "flag" ? "#F59E0B" : colors.surface,
-                borderWidth: 2,
-                borderColor: userVote === "flag" ? "#F59E0B" : colors.border,
-                alignItems: "center",
-                opacity: state.pressed ? 0.7 : 1,
-              })}
+              style={({ pressed }) => [
+                styles.voteBtnSmall,
+                userVote === "flag" && { backgroundColor: "#F59E0B", borderColor: "#F59E0B" },
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
             >
-              <Text
-                style={{
-                  color: userVote === "flag" ? "white" : colors.foreground,
-                  fontWeight: "600",
-                }}
-              >
-                🚩 Flag
-              </Text>
+              <Text style={[styles.voteBtnText, userVote === "flag" && { color: "#fff" }]}>🚩</Text>
             </Pressable>
           </View>
 
-          {/* Location */}
-          <View className="gap-2">
-            <Text className="text-sm font-semibold text-foreground">Location</Text>
-            {sighting.locationAddress && (
-              <Text className="text-foreground">{sighting.locationAddress}</Text>
-            )}
-            <Text className="text-xs text-muted">
-              {latitude.toFixed(6)}, {longitude.toFixed(6)}
-            </Text>
-            {sighting.locationAccuracy && (
-              <Text className="text-xs text-muted">
-                Accuracy: ±{parseFloat(sighting.locationAccuracy).toFixed(0)}m
-              </Text>
-            )}
+          {/* ── AI Analysis panel ── */}
+          {((sighting as any).agencyType || (sighting as any).agencyMarkings || (sighting as any).badgeNumber || (sighting as any).uniformDescription) && (
+            <View style={styles.aiPanel}>
+              <Text style={styles.aiPanelTitle}>AI Analysis</Text>
+              {(sighting as any).agencyType && agencyColor && (
+                <View style={styles.aiRow}>
+                  <Text style={styles.aiLabel}>Agency</Text>
+                  <View style={[styles.agencyChip, { backgroundColor: agencyColor + "22", borderColor: agencyColor + "66" }]}>
+                    <Text style={[styles.agencyChipText, { color: agencyColor }]}>{(sighting as any).agencyType}</Text>
+                  </View>
+                </View>
+              )}
+              {(sighting as any).agencyMarkings && (
+                <View style={styles.aiRow}>
+                  <Text style={styles.aiLabel}>Markings</Text>
+                  <Text style={styles.aiValue}>{(sighting as any).agencyMarkings}</Text>
+                </View>
+              )}
+              {(sighting as any).badgeNumber && (
+                <View style={styles.aiRow}>
+                  <Text style={styles.aiLabel}>Badge #</Text>
+                  <Text style={[styles.aiValue, { color: "#F59E0B", fontFamily: "monospace" }]}>{(sighting as any).badgeNumber}</Text>
+                </View>
+              )}
+              {(sighting as any).uniformDescription && (
+                <View style={styles.aiRow}>
+                  <Text style={styles.aiLabel}>Uniform</Text>
+                  <Text style={styles.aiValue}>{(sighting as any).uniformDescription}</Text>
+                </View>
+              )}
+              {(sighting as any).aiConfidence && (
+                <View style={styles.aiRow}>
+                  <Text style={styles.aiLabel}>AI Confidence</Text>
+                  <Text style={styles.aiValue}>{(parseFloat((sighting as any).aiConfidence) * 100).toFixed(0)}%</Text>
+                </View>
+              )}
+            </View>
+          )}
 
-            {/* Map Preview */}
-            <div
-              style={{
-                height: 200,
-                borderRadius: 12,
-                overflow: "hidden",
-                marginTop: 8,
-                position: "relative",
-              }}
-            >
-              <LeafletMap
-                markers={[
-                  {
-                    id: sighting.id,
-                    latitude,
-                    longitude,
+          {/* ── Location ── */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Location</Text>
+            {sighting.locationAddress && (
+              <Text style={styles.addressText}>{sighting.locationAddress}</Text>
+            )}
+            <Text style={styles.coordsText}>{latitude.toFixed(6)}, {longitude.toFixed(6)}</Text>
+            {sighting.locationAccuracy && (
+              <Text style={styles.accuracyText}>GPS accuracy: ±{parseFloat(sighting.locationAccuracy as string).toFixed(0)}m</Text>
+            )}
+            <View style={{ height: 200, borderRadius: 14, overflow: "hidden", marginTop: 10 }}>
+              <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                <LeafletMap
+                  markers={[{
+                    id: sighting.id, latitude, longitude,
                     licensePlate: sighting.licensePlate,
                     vehicleType: sighting.vehicleType,
                     credibilityScore: sighting.credibilityScore as string,
-                    upvotes: sighting.upvotes,
-                    downvotes: sighting.downvotes,
-                  },
-                ]}
-                center={[latitude, longitude]}
-                zoom={15}
-              />
-            </div>
+                    upvotes: sighting.upvotes, downvotes: sighting.downvotes,
+                    agencyType: (sighting as any).agencyType,
+                  }]}
+                  center={[latitude, longitude]}
+                  zoom={15}
+                />
+              </div>
+            </View>
           </View>
 
-          {/* Notes */}
+          {/* ── Notes ── */}
           {sighting.notes && (
-            <View className="gap-2">
-              <Text className="text-sm font-semibold text-foreground">Notes</Text>
-              <View className="bg-surface border border-border rounded-lg p-4">
-                <Text className="text-foreground">{sighting.notes}</Text>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Notes</Text>
+              <View style={styles.notesBox}>
+                <Text style={styles.notesText}>{sighting.notes}</Text>
               </View>
             </View>
           )}
 
-          {/* Timestamp */}
-          <View className="items-center">
-            <Text className="text-xs text-muted">
-              Reported {new Date(sighting.createdAt).toLocaleString()}
-            </Text>
-          </View>
+          {/* ── Actions ── */}
+          <Pressable
+            onPress={() => router.push(`/plate/${encodeURIComponent(sighting.licensePlate)}` as any)}
+            style={({ pressed }) => [styles.trackBtn, { opacity: pressed ? 0.85 : 1 }]}
+          >
+            <Text style={styles.trackBtnText}>Track This Plate →</Text>
+          </Pressable>
+
+          <Text style={styles.timestamp}>
+            Reported {new Date(sighting.createdAt).toLocaleString()}
+          </Text>
         </View>
       </ScrollView>
     </ScreenContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)",
+  },
+  backBtn: { color: "#3B82F6", fontSize: 15, fontWeight: "600" },
+  headerTitle: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  shareBtn: { color: "#3B82F6", fontSize: 14, fontWeight: "600" },
+
+  photo: { width: "100%", height: 280, backgroundColor: "#1a1a2e" },
+  photoAgencyBadge: {
+    position: "absolute", top: 12, left: 12,
+    paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8,
+  },
+  photoAgencyText: { color: "#fff", fontWeight: "800", fontSize: 13, letterSpacing: 1 },
+  confirmedBadge: {
+    position: "absolute", top: 12, right: 12,
+    backgroundColor: "rgba(34,197,94,0.9)",
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8,
+  },
+  confirmedText: { color: "#fff", fontWeight: "800", fontSize: 11, letterSpacing: 1 },
+
+  body: { padding: 16, gap: 16 },
+
+  plateSection: { alignItems: "center" },
+  plateText: {
+    color: "#fff", fontSize: 32, fontWeight: "900",
+    fontFamily: "monospace", letterSpacing: 3,
+  },
+  vehicleSubtitle: { color: "#888", fontSize: 14, marginTop: 4 },
+
+  credPanel: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 16, padding: 16,
+    borderWidth: 1,
+  },
+  credPanelTitle: { color: "#aaa", fontSize: 13, fontWeight: "600" },
+  credScore: { fontSize: 22, fontWeight: "900" },
+  credBarBg: { height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.1)", marginBottom: 6 },
+  credBarFill: { height: 6, borderRadius: 3 },
+  credLabel: { fontSize: 12, fontWeight: "700", marginBottom: 8 },
+  voteCountRow: { flexDirection: "row", gap: 12 },
+  voteCount: { color: "#666", fontSize: 12 },
+  confirmedPill: {
+    marginTop: 10, backgroundColor: "rgba(34,197,94,0.15)",
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: "rgba(34,197,94,0.3)",
+    alignSelf: "flex-start",
+  },
+  confirmedPillText: { color: "#22C55E", fontSize: 12, fontWeight: "700" },
+
+  voteRow: { flexDirection: "row", gap: 8 },
+  voteBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+  },
+  voteBtnSmall: {
+    paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+  },
+  voteBtnText: { color: "#ccc", fontWeight: "700", fontSize: 14 },
+
+  aiPanel: {
+    backgroundColor: "rgba(59,130,246,0.07)",
+    borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: "rgba(59,130,246,0.2)",
+    gap: 8,
+  },
+  aiPanelTitle: { color: "#3B82F6", fontSize: 13, fontWeight: "800", letterSpacing: 0.5, marginBottom: 4 },
+  aiRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  aiLabel: { color: "#666", fontSize: 12, fontWeight: "600", width: 80 },
+  aiValue: { color: "#ccc", fontSize: 12, flex: 1 },
+  agencyChip: {
+    borderWidth: 1, borderRadius: 6,
+    paddingHorizontal: 10, paddingVertical: 3,
+  },
+  agencyChipText: { fontSize: 12, fontWeight: "800", letterSpacing: 1 },
+
+  section: { gap: 6 },
+  sectionTitle: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  addressText: { color: "#ccc", fontSize: 14 },
+  coordsText: { color: "#666", fontSize: 12, fontFamily: "monospace" },
+  accuracyText: { color: "#555", fontSize: 11 },
+
+  notesBox: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
+  },
+  notesText: { color: "#ccc", fontSize: 14, lineHeight: 20 },
+
+  trackBtn: {
+    backgroundColor: "#3B82F6",
+    borderRadius: 14, paddingVertical: 14, alignItems: "center",
+  },
+  trackBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+
+  timestamp: { color: "#444", fontSize: 11, textAlign: "center" },
+});

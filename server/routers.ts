@@ -47,7 +47,7 @@ export const appRouter = router({
     // Create new sighting
     create: publicProcedure
       .input(
-        z.object({
+          z.object({
           licensePlate: z.string().min(1).max(20),
           vehicleType: z.string().max(50).optional(),
           photoBase64: z.string(), // Base64 encoded photo
@@ -58,6 +58,15 @@ export const appRouter = router({
           notes: z.string().optional(),
           photoMetadata: z.string().optional(), // JSON string
           deviceId: z.string().max(64),
+          // AI-extracted fields
+          agencyType: z.string().optional(),
+          agencyMarkings: z.string().optional(),
+          vehicleMake: z.string().optional(),
+          vehicleModel: z.string().optional(),
+          vehicleColor: z.string().optional(),
+          badgeNumber: z.string().optional(),
+          uniformDescription: z.string().optional(),
+          aiConfidence: z.number().optional(),
         })
       )
       .mutation(async ({ input }) => {
@@ -79,6 +88,14 @@ export const appRouter = router({
           notes: input.notes,
           photoMetadata: input.photoMetadata,
           deviceId: input.deviceId,
+          agencyType: input.agencyType,
+          agencyMarkings: input.agencyMarkings,
+          vehicleMake: input.vehicleMake,
+          vehicleModel: input.vehicleModel,
+          vehicleColor: input.vehicleColor,
+          badgeNumber: input.badgeNumber,
+          uniformDescription: input.uniformDescription,
+          aiConfidence: input.aiConfidence?.toString(),
         });
 
         return { id: sightingId, photoUrl };
@@ -102,6 +119,71 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         return db.getSightingsNearLocation(input.latitude, input.longitude, input.radiusKm);
+      }),
+  }),
+
+  // AI Vehicle & Agency Analysis
+  vehicleAI: router({
+    analyzePhoto: publicProcedure
+      .input(z.object({ imageUrl: z.string() }))
+      .mutation(async ({ input }) => {
+        try {
+          const response = await invokeLLM({
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `Analyze this photo of a vehicle and return a JSON object with these fields:
+- licensePlate: string (the license plate number, uppercase no spaces, or "" if not visible)
+- vehicleMake: string (e.g. "Ford", "Chevrolet", or "" if unknown)
+- vehicleModel: string (e.g. "Explorer", "Tahoe", or "" if unknown)
+- vehicleColor: string (e.g. "Black", "White", or "" if unknown)
+- vehicleType: string (one of: "Sedan", "SUV", "Truck", "Van", "Motorcycle", "Other")
+- agencyType: string (one of: "ICE", "CBP", "DHS", "FBI", "DEA", "ATF", "USMS", "Other", or "" if no agency markings visible)
+- agencyMarkings: string (describe any visible agency text, logos, or insignia, or "" if none)
+- badgeNumber: string (any visible badge or unit number, or "" if not visible)
+- uniformDescription: string (brief description of any visible uniform or tactical gear, or "" if none)
+- confidence: number (0-1, your confidence in the agency identification)
+
+Return ONLY valid JSON, no explanation.`,
+                  },
+                  {
+                    type: "image_url",
+                    image_url: { url: input.imageUrl, detail: "high" },
+                  },
+                ],
+              },
+            ],
+          });
+
+          const content = response.choices[0]?.message?.content;
+          const text = typeof content === "string" ? content.trim() : "{}";
+          // Strip markdown code fences if present
+          const jsonText = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+          const result = JSON.parse(jsonText);
+          return {
+            licensePlate: (result.licensePlate || "").toUpperCase().replace(/[^A-Z0-9]/g, ""),
+            vehicleMake: result.vehicleMake || "",
+            vehicleModel: result.vehicleModel || "",
+            vehicleColor: result.vehicleColor || "",
+            vehicleType: result.vehicleType || "Other",
+            agencyType: result.agencyType || "",
+            agencyMarkings: result.agencyMarkings || "",
+            badgeNumber: result.badgeNumber || "",
+            uniformDescription: result.uniformDescription || "",
+            confidence: result.confidence || 0,
+          };
+        } catch (error) {
+          console.error("Vehicle AI error:", error);
+          return {
+            licensePlate: "", vehicleMake: "", vehicleModel: "",
+            vehicleColor: "", vehicleType: "Other", agencyType: "",
+            agencyMarkings: "", badgeNumber: "", uniformDescription: "",
+            confidence: 0,
+          };
+        }
       }),
   }),
 
@@ -170,6 +252,124 @@ export const appRouter = router({
       .input(z.object({ limit: z.number().min(1).max(100).optional() }).optional())
       .query(async ({ input }) => {
         return db.getAllTrackedPlates(input?.limit);
+      }),
+  }),
+
+  // Convoy detection - finds multiple vehicles sighted in same area within a time window
+  convoy: router({
+    detect: publicProcedure
+      .input(z.object({
+        radiusKm: z.number().min(0.1).max(10).optional(),
+        windowMinutes: z.number().min(1).max(60).optional(),
+        minVehicles: z.number().min(2).max(10).optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        const radiusKm = input?.radiusKm ?? 0.5;
+        const windowMinutes = input?.windowMinutes ?? 15;
+        const minVehicles = input?.minVehicles ?? 2;
+
+        // Get all sightings from the last windowMinutes * 2
+        const allSightings = await db.getAllSightings({ limit: 500, hideHidden: true });
+        const cutoff = new Date(Date.now() - windowMinutes * 60 * 1000);
+        const recent = allSightings.filter((s: any) => new Date(s.createdAt) >= cutoff);
+
+        if (recent.length < minVehicles) return [];
+
+        // Cluster sightings by proximity
+        const R = 6371;
+        const dist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+          const dLat = ((lat2 - lat1) * Math.PI) / 180;
+          const dLon = ((lon2 - lon1) * Math.PI) / 180;
+          const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        };
+
+        const convoys: Array<{
+          centerLat: number;
+          centerLon: number;
+          vehicleCount: number;
+          plates: string[];
+          agencies: string[];
+          firstSeen: Date;
+          lastSeen: Date;
+        }> = [];
+
+        const used = new Set<number>();
+        for (let i = 0; i < recent.length; i++) {
+          if (used.has(i)) continue;
+          const group = [recent[i]];
+          used.add(i);
+          const lat1 = parseFloat(recent[i].latitude);
+          const lon1 = parseFloat(recent[i].longitude);
+          for (let j = i + 1; j < recent.length; j++) {
+            if (used.has(j)) continue;
+            const lat2 = parseFloat(recent[j].latitude);
+            const lon2 = parseFloat(recent[j].longitude);
+            if (dist(lat1, lon1, lat2, lon2) <= radiusKm) {
+              group.push(recent[j]);
+              used.add(j);
+            }
+          }
+          if (group.length >= minVehicles) {
+            const lats = group.map((s: any) => parseFloat(s.latitude));
+            const lons = group.map((s: any) => parseFloat(s.longitude));
+            const plates = [...new Set(group.map((s: any) => s.licensePlate))];
+            const agencies = [...new Set(group.map((s: any) => s.agencyType).filter(Boolean))];
+            const times = group.map((s: any) => new Date(s.createdAt).getTime());
+            convoys.push({
+              centerLat: lats.reduce((a: number, b: number) => a + b, 0) / lats.length,
+              centerLon: lons.reduce((a: number, b: number) => a + b, 0) / lons.length,
+              vehicleCount: group.length,
+              plates,
+              agencies,
+              firstSeen: new Date(Math.min(...times)),
+              lastSeen: new Date(Math.max(...times)),
+            });
+          }
+        }
+
+        return convoys.sort((a, b) => b.vehicleCount - a.vehicleCount);
+      }),
+  }),
+
+  // Trending plates - most reported in last 24h
+  trending: router({
+    plates: publicProcedure
+      .input(z.object({ limit: z.number().min(1).max(50).optional() }).optional())
+      .query(async ({ input }) => {
+        const limit = input?.limit ?? 10;
+        const allSightings = await db.getAllSightings({ limit: 500, hideHidden: true });
+        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const recent = allSightings.filter((s: any) => new Date(s.createdAt) >= cutoff);
+
+        const counts: Record<string, {
+          plate: string;
+          count: number;
+          lastSeen: Date;
+          agencyType: string | null;
+          credibilitySum: number;
+        }> = {};
+
+        for (const s of recent) {
+          const plate = s.licensePlate;
+          if (!counts[plate]) {
+            counts[plate] = { plate, count: 0, lastSeen: new Date(s.createdAt), agencyType: (s as any).agencyType || null, credibilitySum: 0 };
+          }
+          counts[plate].count++;
+          counts[plate].credibilitySum += parseFloat(s.credibilityScore);
+          if (new Date(s.createdAt) > counts[plate].lastSeen) {
+            counts[plate].lastSeen = new Date(s.createdAt);
+            counts[plate].agencyType = (s as any).agencyType || counts[plate].agencyType;
+          }
+        }
+
+        return Object.values(counts)
+          .sort((a, b) => b.count - a.count)
+          .slice(0, limit)
+          .map((c) => ({
+            ...c,
+            avgCredibility: c.credibilitySum / c.count,
+          }));
       }),
   }),
 

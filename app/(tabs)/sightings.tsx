@@ -1,19 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  View,
-  Text,
-  FlatList,
-  Pressable,
-  Image,
-  ActivityIndicator,
-  RefreshControl,
-  Platform,
+  View, Text, FlatList, Pressable, Image,
+  ActivityIndicator, RefreshControl, StyleSheet, ScrollView,
 } from "react-native";
 import { router } from "expo-router";
-import * as Haptics from "expo-haptics";
 import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+
+const AGENCY_COLORS: Record<string, string> = {
+  ICE: "#EF4444", CBP: "#F59E0B", DHS: "#8B5CF6",
+  FBI: "#3B82F6", DEA: "#10B981", ATF: "#F97316",
+  USMS: "#EC4899", Other: "#6B7280",
+};
 
 type SightingItem = {
   id: number;
@@ -27,184 +25,396 @@ type SightingItem = {
   upvotes: number;
   downvotes: number;
   createdAt: Date;
+  agencyType?: string | null;
 };
 
+type TrendingPlate = {
+  plate: string;
+  count: number;
+  lastSeen: Date;
+  agencyType: string | null;
+  avgCredibility: number;
+};
+
+type ConvoyAlert = {
+  centerLat: number;
+  centerLon: number;
+  vehicleCount: number;
+  plates: string[];
+  agencies: string[];
+  firstSeen: Date;
+  lastSeen: Date;
+};
+
+function getCredColor(score: string | number): string {
+  const n = typeof score === "string" ? parseFloat(score) : score;
+  if (n >= 70) return "#22C55E";
+  if (n >= 40) return "#F59E0B";
+  return "#EF4444";
+}
+
+function timeAgo(date: Date): string {
+  const diff = Date.now() - new Date(date).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function distKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+type Tab = "recent" | "trending" | "convoys";
+
 export default function SightingsScreen() {
-  const colors = useColors();
+  const [activeTab, setActiveTab] = useState<Tab>("recent");
   const [sortBy, setSortBy] = useState<"recent" | "credibility">("recent");
+  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
 
-  const { data: sightings, isLoading, refetch, isRefetching } = trpc.sightings.list.useQuery({
-    hideHidden: true,
-    limit: 50,
-  });
+  const { data: sightings, isLoading, refetch, isRefetching } = trpc.sightings.list.useQuery({ hideHidden: true, limit: 100 });
+  const { data: trendingData } = trpc.trending.plates.useQuery({ limit: 15 });
+  const { data: convoyData } = trpc.convoy.detect.useQuery({ radiusKm: 0.5, windowMinutes: 15, minVehicles: 2 });
 
-  const getCredibilityColor = (score: string): string => {
-    const credibility = parseFloat(score);
-    if (credibility >= 70) return "#22C55E";
-    if (credibility >= 40) return "#F59E0B";
-    return "#EF4444";
-  };
-
-  const sortedSightings = sightings
-    ? [...sightings].sort((a, b) => {
-        if (sortBy === "credibility") {
-          return parseFloat(b.credibilityScore as string) - parseFloat(a.credibilityScore as string);
-        }
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      })
-    : [];
-
-  const handleItemPress = (id: number) => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  useEffect(() => {
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => {}
+      );
     }
-    router.push(`/sighting/${id}` as any);
-  };
+  }, []);
 
-  const handleSortToggle = () => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    setSortBy((prev) => (prev === "recent" ? "credibility" : "recent"));
-  };
+  const sortedSightings = useMemo(() => {
+    if (!sightings) return [];
+    return [...sightings].sort((a, b) => {
+      if (sortBy === "credibility") return parseFloat(b.credibilityScore as string) - parseFloat(a.credibilityScore as string);
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [sightings, sortBy]);
 
-  const renderItem = ({ item }: { item: SightingItem }) => {
-    const credibility = parseFloat(item.credibilityScore as string);
-    const totalVotes = item.upvotes + item.downvotes;
-    const timeAgo = getTimeAgo(new Date(item.createdAt));
+  const renderSightingCard = ({ item }: { item: SightingItem }) => {
+    const cred = parseFloat(item.credibilityScore as string);
+    const credColor = getCredColor(cred);
+    const agencyColor = item.agencyType ? (AGENCY_COLORS[item.agencyType] || "#6B7280") : null;
+    const dist = userLocation
+      ? distKm(userLocation.lat, userLocation.lon, parseFloat(item.latitude), parseFloat(item.longitude))
+      : null;
+    const distLabel = dist !== null
+      ? dist < 1 ? `${(dist * 1000).toFixed(0)}m away` : `${dist.toFixed(1)}km away`
+      : null;
+    const isConfirmed = item.upvotes >= 3 && cred >= 60;
 
     return (
       <Pressable
-        onPress={() => handleItemPress(item.id)}
-        style={(state) => ({
-          backgroundColor: colors.surface,
-          marginHorizontal: 16,
-          marginVertical: 6,
-          borderRadius: 12,
-          overflow: "hidden",
-          opacity: state.pressed ? 0.7 : 1,
-        })}
+        onPress={() => router.push(`/sighting/${item.id}` as any)}
+        style={({ pressed }) => [styles.card, { opacity: pressed ? 0.85 : 1 }]}
       >
-        <View className="flex-row">
-          {/* Thumbnail */}
-          <Image
-            source={{ uri: item.photoUrl }}
-            style={{
-              width: 100,
-              height: 100,
-              backgroundColor: colors.border,
-            }}
-            resizeMode="cover"
-          />
-
-          {/* Info */}
-          <View className="flex-1 p-3 justify-between">
-            <View>
-              <Text className="text-lg font-bold text-foreground font-mono">
-                {item.licensePlate}
-              </Text>
-              {item.vehicleType && (
-                <Text className="text-xs text-muted mt-1">{item.vehicleType}</Text>
-              )}
+        {/* Photo */}
+        <View style={{ position: "relative" }}>
+          <Image source={{ uri: item.photoUrl }} style={styles.cardPhoto} resizeMode="cover" />
+          {item.agencyType && agencyColor && (
+            <View style={[styles.cardAgencyBadge, { backgroundColor: agencyColor + "dd" }]}>
+              <Text style={styles.cardAgencyText}>{item.agencyType}</Text>
             </View>
-
-            <View className="gap-1">
-              {item.locationAddress && (
-                <Text className="text-xs text-muted" numberOfLines={1}>
-                  {item.locationAddress}
-                </Text>
-              )}
-              <View className="flex-row items-center gap-2">
-                <View
-                  style={{
-                    paddingHorizontal: 8,
-                    paddingVertical: 2,
-                    borderRadius: 8,
-                    backgroundColor: getCredibilityColor(item.credibilityScore) + "20",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: getCredibilityColor(item.credibilityScore),
-                      fontWeight: "600",
-                      fontSize: 10,
-                    }}
-                  >
-                    {credibility.toFixed(0)}%
-                  </Text>
-                </View>
-                <Text className="text-xs text-muted">{totalVotes} votes</Text>
-                <Text className="text-xs text-muted">• {timeAgo}</Text>
-              </View>
+          )}
+          {isConfirmed && (
+            <View style={styles.cardConfirmedBadge}>
+              <Text style={styles.cardConfirmedText}>✓</Text>
             </View>
+          )}
+        </View>
+
+        {/* Info */}
+        <View style={styles.cardInfo}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <Text style={styles.cardPlate}>{item.licensePlate}</Text>
+            <Text style={styles.cardTime}>{timeAgo(item.createdAt)}</Text>
+          </View>
+
+          {item.vehicleType && <Text style={styles.cardVehicleType}>{item.vehicleType}</Text>}
+
+          {item.locationAddress && (
+            <Text style={styles.cardAddress} numberOfLines={1}>{item.locationAddress}</Text>
+          )}
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
+            {/* Cred pill */}
+            <View style={[styles.credPill, { backgroundColor: credColor + "22", borderColor: credColor + "55" }]}>
+              <View style={[styles.credDot, { backgroundColor: credColor }]} />
+              <Text style={[styles.credPillText, { color: credColor }]}>{cred.toFixed(0)}%</Text>
+            </View>
+            <Text style={styles.voteText}>{item.upvotes + item.downvotes} votes</Text>
+            {distLabel && <Text style={styles.distText}>· {distLabel}</Text>}
           </View>
         </View>
       </Pressable>
     );
   };
 
-  return (
-    <ScreenContainer>
-      <View className="flex-1">
-        {/* Header */}
-        <View className="p-4 border-b border-border">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-2xl font-bold text-foreground">Sightings</Text>
-            <Pressable
-              onPress={handleSortToggle}
-              style={(state) => ({
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 16,
-                backgroundColor: colors.surface,
-                opacity: state.pressed ? 0.7 : 1,
-              })}
-            >
-              <Text className="text-xs font-semibold text-primary">
-                {sortBy === "recent" ? "Most Recent" : "Top Verified"}
-              </Text>
-            </Pressable>
+  const renderTrendingCard = (item: TrendingPlate, index: number) => {
+    const agencyColor = item.agencyType ? (AGENCY_COLORS[item.agencyType] || "#6B7280") : "#6B7280";
+    return (
+      <Pressable
+        key={item.plate}
+        onPress={() => router.push(`/plate/${encodeURIComponent(item.plate)}` as any)}
+        style={({ pressed }) => [styles.trendCard, { opacity: pressed ? 0.85 : 1 }]}
+      >
+        <View style={styles.trendRank}>
+          <Text style={styles.trendRankText}>#{index + 1}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <Text style={styles.trendPlate}>{item.plate}</Text>
+            {item.agencyType && (
+              <View style={[styles.trendAgencyBadge, { backgroundColor: agencyColor + "22", borderColor: agencyColor + "55" }]}>
+                <Text style={[styles.trendAgencyText, { color: agencyColor }]}>{item.agencyType}</Text>
+              </View>
+            )}
+          </View>
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <Text style={styles.trendStat}>{item.count} sightings</Text>
+            <Text style={styles.trendStat}>Last: {timeAgo(item.lastSeen)}</Text>
+            <Text style={[styles.trendStat, { color: getCredColor(item.avgCredibility) }]}>
+              {item.avgCredibility.toFixed(0)}% cred
+            </Text>
           </View>
         </View>
+        <Text style={styles.trendArrow}>→</Text>
+      </Pressable>
+    );
+  };
 
-        {/* List */}
-        {isLoading ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
-        ) : (
-          <FlatList
-            data={sortedSightings}
-            renderItem={renderItem}
-            keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={{ paddingVertical: 8 }}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefetching}
-                onRefresh={refetch}
-                tintColor={colors.primary}
-              />
-            }
-            ListEmptyComponent={
-              <View className="flex-1 items-center justify-center p-8">
-                <Text className="text-muted text-center">
-                  No sightings yet. Be the first to report a vehicle!
+  const renderConvoyCard = (convoy: ConvoyAlert, index: number) => (
+    <View key={index} style={styles.convoyCard}>
+      <View style={styles.convoyHeader}>
+        <View style={styles.convoyAlertBadge}>
+          <Text style={styles.convoyAlertText}>⚠ CONVOY</Text>
+        </View>
+        <Text style={styles.convoyTime}>{timeAgo(convoy.lastSeen)}</Text>
+      </View>
+      <Text style={styles.convoyVehicleCount}>{convoy.vehicleCount} vehicles</Text>
+      {convoy.agencies.length > 0 && (
+        <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {convoy.agencies.map((a) => (
+            <View key={a} style={[styles.convoyAgencyBadge, { backgroundColor: (AGENCY_COLORS[a] || "#6B7280") + "22", borderColor: (AGENCY_COLORS[a] || "#6B7280") + "55" }]}>
+              <Text style={[styles.convoyAgencyText, { color: AGENCY_COLORS[a] || "#6B7280" }]}>{a}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+      <Text style={styles.convoyPlates} numberOfLines={2}>
+        Plates: {convoy.plates.join(", ")}
+      </Text>
+      <Text style={styles.convoyCoords}>
+        {convoy.centerLat.toFixed(4)}, {convoy.centerLon.toFixed(4)}
+      </Text>
+    </View>
+  );
+
+  return (
+    <ScreenContainer containerClassName="bg-[#0d0d1a]">
+      <View style={{ flex: 1 }}>
+
+        {/* ── Header ── */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Reports</Text>
+          {activeTab === "recent" && (
+            <Pressable
+              onPress={() => setSortBy((v) => v === "recent" ? "credibility" : "recent")}
+              style={({ pressed }) => [styles.sortBtn, { opacity: pressed ? 0.8 : 1 }]}
+            >
+              <Text style={styles.sortBtnText}>
+                {sortBy === "recent" ? "⏱ Recent" : "✓ Verified"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* ── Tab bar ── */}
+        <View style={styles.tabBar}>
+          {(["recent", "trending", "convoys"] as Tab[]).map((tab) => (
+            <Pressable
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={[styles.tab, activeTab === tab && styles.tabActive]}
+            >
+              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                {tab === "recent" ? "Recent" : tab === "trending" ? "Trending" : "Convoys"}
+              </Text>
+              {tab === "convoys" && (convoyData?.length ?? 0) > 0 && (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>{convoyData!.length}</Text>
+                </View>
+              )}
+            </Pressable>
+          ))}
+        </View>
+
+        {/* ── Content ── */}
+        {activeTab === "recent" && (
+          isLoading ? (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+              <ActivityIndicator size="large" color="#3B82F6" />
+            </View>
+          ) : (
+            <FlatList
+              data={sortedSightings as SightingItem[]}
+              renderItem={renderSightingCard}
+              keyExtractor={(item) => item.id.toString()}
+              contentContainerStyle={{ paddingVertical: 8, paddingHorizontal: 12, gap: 8 }}
+              refreshControl={
+                <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#3B82F6" />
+              }
+              ListEmptyComponent={
+                <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 40 }}>
+                  <Text style={{ color: "#555", textAlign: "center" }}>No sightings yet. Be the first to report!</Text>
+                </View>
+              }
+            />
+          )
+        )}
+
+        {activeTab === "trending" && (
+          <ScrollView contentContainerStyle={{ padding: 12, gap: 8 }}>
+            <Text style={styles.sectionSubtitle}>Most reported in the last 24 hours</Text>
+            {!trendingData || trendingData.length === 0 ? (
+              <Text style={{ color: "#555", textAlign: "center", marginTop: 40 }}>No trending plates yet.</Text>
+            ) : (
+              (trendingData as TrendingPlate[]).map((item, i) => renderTrendingCard(item, i))
+            )}
+          </ScrollView>
+        )}
+
+        {activeTab === "convoys" && (
+          <ScrollView contentContainerStyle={{ padding: 12, gap: 10 }}>
+            <Text style={styles.sectionSubtitle}>Multiple vehicles spotted together (last 15 min)</Text>
+            {!convoyData || convoyData.length === 0 ? (
+              <View style={{ alignItems: "center", marginTop: 40 }}>
+                <Text style={{ color: "#22C55E", fontSize: 16, fontWeight: "700", marginBottom: 8 }}>✓ No convoys detected</Text>
+                <Text style={{ color: "#555", textAlign: "center", fontSize: 13 }}>
+                  No clusters of 2+ vehicles have been reported in the same area within the last 15 minutes.
                 </Text>
               </View>
-            }
-          />
+            ) : (
+              (convoyData as ConvoyAlert[]).map((c, i) => renderConvoyCard(c, i))
+            )}
+          </ScrollView>
         )}
       </View>
     </ScreenContainer>
   );
 }
 
-function getTimeAgo(date: Date): string {
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)",
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "900" },
+  sortBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+  },
+  sortBtnText: { color: "#aaa", fontSize: 12, fontWeight: "700" },
 
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  return date.toLocaleDateString();
-}
+  tabBar: {
+    flexDirection: "row",
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)",
+  },
+  tab: {
+    flex: 1, paddingVertical: 12, alignItems: "center", justifyContent: "center",
+    flexDirection: "row", gap: 4,
+  },
+  tabActive: { borderBottomWidth: 2, borderBottomColor: "#3B82F6" },
+  tabText: { color: "#666", fontSize: 13, fontWeight: "600" },
+  tabTextActive: { color: "#3B82F6" },
+  tabBadge: {
+    backgroundColor: "#EF4444", borderRadius: 8,
+    paddingHorizontal: 5, paddingVertical: 1,
+  },
+  tabBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
+
+  sectionSubtitle: { color: "#555", fontSize: 12, marginBottom: 8 },
+
+  // Sighting card
+  card: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 14, overflow: "hidden",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
+    flexDirection: "row",
+  },
+  cardPhoto: { width: 90, height: 90, backgroundColor: "#1a1a2e" },
+  cardAgencyBadge: {
+    position: "absolute", top: 4, left: 4,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5,
+  },
+  cardAgencyText: { color: "#fff", fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  cardConfirmedBadge: {
+    position: "absolute", bottom: 4, right: 4,
+    backgroundColor: "rgba(34,197,94,0.9)", borderRadius: 5,
+    width: 16, height: 16, alignItems: "center", justifyContent: "center",
+  },
+  cardConfirmedText: { color: "#fff", fontSize: 9, fontWeight: "900" },
+  cardInfo: { flex: 1, padding: 10 },
+  cardPlate: { color: "#fff", fontSize: 16, fontWeight: "900", fontFamily: "monospace", letterSpacing: 1 },
+  cardTime: { color: "#555", fontSize: 11 },
+  cardVehicleType: { color: "#777", fontSize: 11, marginTop: 2 },
+  cardAddress: { color: "#666", fontSize: 11, marginTop: 2 },
+  credPill: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    borderWidth: 1, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  credDot: { width: 5, height: 5, borderRadius: 3 },
+  credPillText: { fontSize: 10, fontWeight: "700" },
+  voteText: { color: "#555", fontSize: 11 },
+  distText: { color: "#555", fontSize: 11 },
+
+  // Trending card
+  trendCard: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
+  },
+  trendRank: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: "rgba(59,130,246,0.15)",
+    borderWidth: 1, borderColor: "rgba(59,130,246,0.3)",
+    alignItems: "center", justifyContent: "center",
+  },
+  trendRankText: { color: "#3B82F6", fontSize: 12, fontWeight: "800" },
+  trendPlate: { color: "#fff", fontSize: 16, fontWeight: "900", fontFamily: "monospace", letterSpacing: 1 },
+  trendAgencyBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  trendAgencyText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  trendStat: { color: "#666", fontSize: 11 },
+  trendArrow: { color: "#444", fontSize: 16 },
+
+  // Convoy card
+  convoyCard: {
+    backgroundColor: "rgba(239,68,68,0.07)",
+    borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: "rgba(239,68,68,0.25)",
+  },
+  convoyHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  convoyAlertBadge: {
+    backgroundColor: "rgba(239,68,68,0.2)", borderRadius: 6,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderColor: "rgba(239,68,68,0.4)",
+  },
+  convoyAlertText: { color: "#EF4444", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  convoyTime: { color: "#666", fontSize: 11 },
+  convoyVehicleCount: { color: "#fff", fontSize: 20, fontWeight: "900", marginBottom: 8 },
+  convoyAgencyBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  convoyAgencyText: { fontSize: 11, fontWeight: "800" },
+  convoyPlates: { color: "#aaa", fontSize: 12, fontFamily: "monospace", marginBottom: 4 },
+  convoyCoords: { color: "#555", fontSize: 11, fontFamily: "monospace" },
+});
