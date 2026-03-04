@@ -345,44 +345,53 @@ export default function SightingsScreen() {
 const styles = StyleSheet.create({
   header: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: 16, paddingVertical: 14,
+    paddingHorizontal: 16, paddingVertical: 18,
     borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)",
   },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "900" },
+  headerTitle: { color: "#fff", fontSize: 24, fontWeight: "900", letterSpacing: 0.3 },
   sortBtn: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14,
     backgroundColor: "rgba(255,255,255,0.07)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    minHeight: 40, justifyContent: "center",
   },
-  sortBtnText: { color: "#aaa", fontSize: 12, fontWeight: "700" },
+  sortBtnText: { color: "#aaa", fontSize: 13, fontWeight: "700" },
 
   tabBar: {
     flexDirection: "row",
     borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)",
+    paddingHorizontal: 8,
+    gap: 4,
   },
   tab: {
-    flex: 1, paddingVertical: 12, alignItems: "center", justifyContent: "center",
-    flexDirection: "row", gap: 4,
+    flex: 1, paddingVertical: 14, alignItems: "center", justifyContent: "center",
+    flexDirection: "row", gap: 6,
+    borderRadius: 10, marginBottom: 4,
   },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: "#3B82F6" },
-  tabText: { color: "#666", fontSize: 13, fontWeight: "600" },
-  tabTextActive: { color: "#3B82F6" },
+  tabActive: {
+    borderBottomWidth: 2, borderBottomColor: "#3B82F6",
+    backgroundColor: "rgba(59,130,246,0.08)",
+  },
+  tabText: { color: "#666", fontSize: 14, fontWeight: "700" },
+  tabTextActive: { color: "#3B82F6", fontSize: 14 },
   tabBadge: {
-    backgroundColor: "#EF4444", borderRadius: 8,
-    paddingHorizontal: 5, paddingVertical: 1,
+    backgroundColor: "#EF4444", borderRadius: 10,
+    paddingHorizontal: 6, paddingVertical: 2,
+    minWidth: 18, alignItems: "center",
   },
-  tabBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
+  tabBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
 
   sectionSubtitle: { color: "#555", fontSize: 12, marginBottom: 8 },
 
   // Sighting card
   card: {
     backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: 14, overflow: "hidden",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
+    borderRadius: 16, overflow: "hidden",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
     flexDirection: "row",
+    minHeight: 96,
   },
-  cardPhoto: { width: 90, height: 90, backgroundColor: "#1a1a2e" },
+  cardPhoto: { width: 96, height: 96, backgroundColor: "#1a1a2e" },
   cardAgencyBadge: {
     position: "absolute", top: 4, left: 4,
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5,

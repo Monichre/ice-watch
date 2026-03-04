@@ -133,3 +133,11 @@
 - [x] Shareable links for sightings and plate history
 - [x] CSV/JSON export for plate history
 - [x] Embeddable map widget
+
+## Mobile Web UX
+
+- [ ] Improve bottom tab bar for mobile web (larger tap targets, better spacing)
+- [ ] Make map control buttons larger and easier to tap on mobile
+- [ ] Improve selected marker card for mobile (full-width, swipeable dismiss)
+- [ ] Improve agency filter chips scrollability on mobile
+- [ ] Better camera button placement for one-handed use

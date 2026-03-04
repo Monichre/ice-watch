@@ -426,14 +426,16 @@ const styles = StyleSheet.create({
 
   // Map controls
   mapControls: {
-    position: "absolute", right: 12, top: 110,
-    gap: 8, zIndex: 10,
+    position: "absolute", right: 12, top: 116,
+    gap: 10, zIndex: 10,
   },
   controlBtn: {
-    width: 40, height: 40, borderRadius: 12,
-    backgroundColor: "rgba(13,13,26,0.88)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    width: 52, height: 52, borderRadius: 14,
+    backgroundColor: "rgba(13,13,26,0.92)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
     alignItems: "center", justifyContent: "center",
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 6, elevation: 4,
   },
   controlBtnActive: {
     backgroundColor: "rgba(239,68,68,0.25)",
@@ -442,7 +444,7 @@ const styles = StyleSheet.create({
 
   // Stats strip
   statsStrip: {
-    position: "absolute", bottom: 96, left: 12,
+    position: "absolute", bottom: 108, left: 12,
     flexDirection: "row", alignItems: "center", gap: 8,
     zIndex: 10,
   },
@@ -461,12 +463,12 @@ const styles = StyleSheet.create({
 
   // Selected marker card
   markerCard: {
-    position: "absolute", bottom: 90, left: 12, right: 12,
-    backgroundColor: "rgba(20,20,35,0.97)",
-    borderRadius: 18, padding: 16,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    position: "absolute", bottom: 104, left: 12, right: 12,
+    backgroundColor: "rgba(20,20,35,0.98)",
+    borderRadius: 20, padding: 18,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
     shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5, shadowRadius: 20, elevation: 12,
+    shadowOpacity: 0.6, shadowRadius: 24, elevation: 16,
     zIndex: 20,
   },
   agencyBadge: {
@@ -492,13 +494,13 @@ const styles = StyleSheet.create({
   btnFill: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center" },
   btnFillText: { color: "white", fontWeight: "700", fontSize: 14 },
 
-  // FAB
+  // FAB — sits above tab bar with comfortable clearance
   fab: {
-    position: "absolute", bottom: 24, right: 20,
-    width: 60, height: 60, borderRadius: 30,
+    position: "absolute", bottom: 96, right: 20,
+    width: 64, height: 64, borderRadius: 32,
     alignItems: "center", justifyContent: "center",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4, shadowRadius: 10, elevation: 8,
+    shadowColor: "#3B82F6", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 14, elevation: 10,
     zIndex: 20,
   },
 });
