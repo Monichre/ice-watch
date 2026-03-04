@@ -160,12 +160,51 @@ export default function PlateTrackingScreen() {
   }, [sorted]);
 
   const handleShare = async () => {
+    const url = typeof window !== "undefined" ? `${window.location.origin}/plate/${licensePlate}` : "";
+    const text = `ICE Tracker: Plate ${licensePlate} — ${sorted.length} sighting(s) tracked`;
     try {
-      await Share.share({
-        message: `Tracking plate ${licensePlate} — ${sorted.length} sightings. View on ICE Tracker.`,
-        url: typeof window !== "undefined" ? window.location.href : "",
-      });
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({ title: `ICE Tracker: ${licensePlate}`, text, url });
+      } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        alert("Link copied to clipboard!");
+      } else {
+        alert(url);
+      }
     } catch {}
+  };
+
+  const handleExportCSV = () => {
+    const header = "id,licensePlate,latitude,longitude,locationAddress,vehicleType,agencyType,vehicleMake,vehicleModel,credibilityScore,upvotes,downvotes,createdAt";
+    const rows = sorted.map((s) =>
+      [
+        s.id, s.licensePlate, s.latitude, s.longitude,
+        `"${(s.locationAddress || "").replace(/"/g, "'")}"`,
+        s.vehicleType || "", s.agencyType || "",
+        s.vehicleMake || "", s.vehicleModel || "",
+        s.credibilityScore, s.upvotes, s.downvotes,
+        new Date(s.createdAt).toISOString(),
+      ].join(",")
+    );
+    const csv = [header, ...rows].join("\n");
+    if (typeof window !== "undefined") {
+      const blob = new Blob([csv], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `plate-${licensePlate}-history.csv`;
+      a.click();
+    }
+  };
+
+  const handleExportJSON = () => {
+    const json = JSON.stringify(sorted, null, 2);
+    if (typeof window !== "undefined") {
+      const blob = new Blob([json], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `plate-${licensePlate}-history.json`;
+      a.click();
+    }
   };
 
   if (isLoading) {
@@ -187,7 +226,7 @@ export default function PlateTrackingScreen() {
           <Pressable onPress={() => router.back()} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
             <Text style={styles.backBtn}>← Back</Text>
           </Pressable>
-          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <Pressable
               onPress={handleToggleWatch}
               style={({ pressed }) => [styles.watchBtn, watching && styles.watchBtnActive, { opacity: pressed ? 0.8 : 1 }]}
@@ -195,6 +234,12 @@ export default function PlateTrackingScreen() {
               <Text style={[styles.watchBtnText, watching && styles.watchBtnTextActive]}>
                 {watching ? "🔔 Watching" : "🔕 Watch"}
               </Text>
+            </Pressable>
+            <Pressable onPress={handleExportCSV} style={({ pressed }) => [styles.exportBtn, { opacity: pressed ? 0.7 : 1 }]}>
+              <Text style={styles.exportBtnText}>CSV ↓</Text>
+            </Pressable>
+            <Pressable onPress={handleExportJSON} style={({ pressed }) => [styles.exportBtn, { opacity: pressed ? 0.7 : 1 }]}>
+              <Text style={styles.exportBtnText}>JSON ↓</Text>
             </Pressable>
             <Pressable onPress={handleShare} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
               <Text style={styles.shareBtn}>Share ↗</Text>
@@ -485,4 +530,13 @@ const styles = StyleSheet.create({
   },
   watchBtnText: { color: "#aaa", fontSize: 12, fontWeight: "700" },
   watchBtnTextActive: { color: "#22C55E" },
+  exportBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: "rgba(59,130,246,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(59,130,246,0.4)",
+  },
+  exportBtnText: { color: "#3B82F6", fontSize: 12, fontWeight: "700" },
 });

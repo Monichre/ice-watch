@@ -1,13 +1,17 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import {
-  View, Text, Pressable, ActivityIndicator,
-  TextInput, ScrollView, StyleSheet,
+import { View, Text, Pressable, ActivityIndicator,
+  TextInput, ScrollView, StyleSheet, Switch,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { LeafletMap } from "@/components/leaflet-map";
+import { useProximityAlerts } from "@/hooks/use-proximity-alerts";
+import {
+  getCachedSightings, mergeSightingsCache, getLastFetchTime, setLastFetchTime,
+  type CachedSighting,
+} from "@/lib/sightings-cache";
 
 const AGENCY_COLORS: Record<string, string> = {
   ICE: "#EF4444",
@@ -41,12 +45,32 @@ export default function MapScreen() {
   const [selectedAgency, setSelectedAgency] = useState<string | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [newSightingsCount, setNewSightingsCount] = useState(0);
+  const [proximityEnabled, setProximityEnabled] = useState(false);
+  const [cachedSightings, setCachedSightings] = useState<CachedSighting[]>([]);
   const lastSightingCountRef = useRef(0);
 
   const { data: sightings, isLoading, refetch } = trpc.sightings.list.useQuery({
     hideHidden: true,
     limit: 500,
   });
+
+  // Load offline cache on mount for instant rendering
+  useEffect(() => {
+    getCachedSightings().then((cached) => {
+      if (cached.length > 0) setCachedSightings(cached);
+    });
+  }, []);
+
+  // Merge server data into cache when it arrives
+  useEffect(() => {
+    if (!sightings || sightings.length === 0) return;
+    const normalized = (sightings as any[]).map((s) => ({
+      ...s,
+      createdAt: typeof s.createdAt === "string" ? s.createdAt : new Date(s.createdAt).toISOString(),
+    })) as CachedSighting[];
+    mergeSightingsCache(normalized).then(setCachedSightings);
+    setLastFetchTime();
+  }, [sightings]);
 
   // Get user location on mount
   useEffect(() => {
@@ -74,6 +98,16 @@ export default function MapScreen() {
     }
     lastSightingCountRef.current = sightings.length;
   }, [sightings]);
+
+  // Proximity alerts hook
+  const activeSightings = (sightings as any[] | undefined) || cachedSightings;
+  useProximityAlerts({
+    enabled: proximityEnabled,
+    radiusKm: 2,
+    userLat: userLocation?.latitude ?? null,
+    userLng: userLocation?.longitude ?? null,
+    sightings: activeSightings,
+  });
 
   // Build markers with isRecent flag
   const now = Date.now();
@@ -217,6 +251,13 @@ export default function MapScreen() {
           >
             <Text style={{ fontSize: 18 }}>🔥</Text>
           </Pressable>
+          {/* Proximity alerts toggle */}
+          <Pressable
+            onPress={() => setProximityEnabled((v) => !v)}
+            style={[styles.controlBtn, proximityEnabled && styles.controlBtnActive]}
+          >
+            <Text style={{ fontSize: 18 }}>🚨</Text>
+          </Pressable>
           {/* Refresh */}
           <Pressable
             onPress={() => refetch()}
@@ -233,6 +274,17 @@ export default function MapScreen() {
               <Text style={{ fontSize: 18 }}>◎</Text>
             </Pressable>
           )}
+          {/* Widget link */}
+          <Pressable
+            onPress={() => {
+              if (typeof window !== "undefined") {
+                window.open("/widget", "_blank");
+              }
+            }}
+            style={styles.controlBtn}
+          >
+            <Text style={{ fontSize: 18 }}>📱</Text>
+          </Pressable>
         </View>
 
         {/* ── Stats strip ── */}

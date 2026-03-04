@@ -1,11 +1,13 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
-  View, Text, FlatList, Pressable, Image,
+  View, Text, FlatList, Pressable, Image, Animated,
   ActivityIndicator, RefreshControl, StyleSheet, ScrollView,
+  PanResponder,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { trpc } from "@/lib/trpc";
+import { getDeviceId } from "@/lib/device-id";
 
 const AGENCY_COLORS: Record<string, string> = {
   ICE: "#EF4444", CBP: "#F59E0B", DHS: "#8B5CF6",
@@ -99,6 +101,8 @@ export default function SightingsScreen() {
     });
   }, [sightings, sortBy]);
 
+  const voteOnSighting = trpc.votes.cast.useMutation();
+
   const renderSightingCard = ({ item }: { item: SightingItem }) => {
     const cred = parseFloat(item.credibilityScore as string);
     const credColor = getCredColor(cred);
@@ -111,7 +115,32 @@ export default function SightingsScreen() {
       : null;
     const isConfirmed = item.upvotes >= 3 && cred >= 60;
 
+    // Swipe-to-vote via PanResponder
+    const translateX = useRef(new Animated.Value(0)).current;
+    const swipeHint = useRef<"upvote" | "downvote" | null>(null);
+
+    const panResponder = PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderMove: (_, g) => {
+        translateX.setValue(g.dx);
+        swipeHint.current = g.dx > 0 ? "upvote" : "downvote";
+      },
+      onPanResponderRelease: async (_, g) => {
+        if (Math.abs(g.dx) > 60) {
+          const voteType = g.dx > 0 ? "upvote" : "downvote";
+          const deviceId = await getDeviceId();
+          voteOnSighting.mutate({ deviceId, sightingId: item.id, voteType });
+        }
+        Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+        swipeHint.current = null;
+      },
+    });
+
     return (
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={{ transform: [{ translateX }] }}
+      >
       <Pressable
         onPress={() => router.push(`/sighting/${item.id}` as any)}
         style={({ pressed }) => [styles.card, { opacity: pressed ? 0.85 : 1 }]}
@@ -155,6 +184,7 @@ export default function SightingsScreen() {
           </View>
         </View>
       </Pressable>
+      </Animated.View>
     );
   };
 

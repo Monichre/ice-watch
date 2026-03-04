@@ -68,12 +68,41 @@ export default function SightingDetailScreen() {
   };
 
   const handleShare = async () => {
+    if (!sighting) return;
+    const url = typeof window !== "undefined" ? `${window.location.origin}/sighting/${sightingId}` : "";
+    const text = `ICE Tracker: ${sighting.licensePlate} spotted — ${sighting.locationAddress || `${sighting.latitude}, ${sighting.longitude}`}`;
     try {
-      await Share.share({
-        message: `Vehicle sighting: ${sighting?.licensePlate} — ${sighting?.locationAddress || "GPS coordinates"}. Reported on ICE Tracker.`,
-        url: typeof window !== "undefined" ? window.location.href : "",
-      });
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({ title: `ICE Tracker: ${sighting.licensePlate}`, text, url });
+      } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        Alert.alert("Link Copied", "Sighting link copied to clipboard!");
+      } else {
+        Alert.alert("Share Link", url);
+      }
     } catch {}
+  };
+
+  const handleExportCSV = async () => {
+    if (!sighting) return;
+    const rows = [
+      "id,licensePlate,latitude,longitude,locationAddress,vehicleType,agencyType,vehicleMake,vehicleModel,credibilityScore,upvotes,downvotes,createdAt",
+      [
+        sighting.id, sighting.licensePlate, sighting.latitude, sighting.longitude,
+        `"${(sighting.locationAddress || "").replace(/"/g, "'")}"`,
+        sighting.vehicleType || "", (sighting as any).agencyType || "",
+        (sighting as any).vehicleMake || "", (sighting as any).vehicleModel || "",
+        sighting.credibilityScore, sighting.upvotes, sighting.downvotes,
+        new Date(sighting.createdAt).toISOString(),
+      ].join(","),
+    ].join("\n");
+    if (typeof window !== "undefined") {
+      const blob = new Blob([rows], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `sighting-${sighting.id}-${sighting.licensePlate}.csv`;
+      a.click();
+    }
   };
 
   if (isLoading || !sighting) {

@@ -15,16 +15,16 @@
 - [x] Database schema for vehicle sightings
 - [x] Filter sightings by date range
 - [x] Filter sightings by vehicle type
-- [ ] Search functionality for license plates
+- [x] Search functionality for license plates
 - [x] Custom map markers for different vehicle types
-- [ ] Marker clustering for performance
+- [x] Marker clustering for performance
 - [x] Pull-to-refresh on sightings list
 - [x] Image compression before upload
 - [x] Location permissions handling
 - [x] Camera permissions handling
 - [x] Error handling for failed uploads
 - [x] Success notifications for submissions
-- [ ] Offline caching of recent sightings
+- [x] Offline caching of recent sightings
 - [x] Custom app icon and branding
 
 ## Community Verification Features
@@ -64,7 +64,7 @@
 - [x] Auto-fill license plate field in submission form
 - [x] Add manual override option for incorrect detections
 - [x] Show confidence score for extracted plate
-- [ ] Handle multiple plates in single photo
+- [x] Handle multiple plates in single photo
 - [ ] Test with various plate formats and angles
 
 ## Real-Time Plate Tracking
@@ -76,8 +76,8 @@
 - [x] Display movement history with timestamps
 - [x] Show total sightings count per plate
 - [x] Add ability to click plate on map to see its history
-- [ ] Implement search by plate number
-- [ ] Show most recently tracked plates
+- [x] Implement search by plate number
+- [x] Show most recently tracked plates
 
 ## Real-Time Updates
 
@@ -88,9 +88,9 @@
 - [x] Optimize performance for large numbers of markers
 - [x] Show notification indicator when new sightings appear
 - [x] Add pull-to-refresh gesture for manual updates
-- [ ] Implement efficient delta updates (only new data)
-- [ ] Cache sightings to reduce API calls
-- [ ] Handle offline/online transitions gracefully
+- [x] Implement efficient delta updates (only new data)
+- [x] Cache sightings to reduce API calls
+- [x] Handle offline/online transitions gracefully
 
 ## UI Beautification
 
@@ -101,7 +101,7 @@
 - [x] Camera screen license plate targeting overlay frame
 - [x] Bottom-sheet submission form over photo preview
 - [x] Sighting cards with thumbnail, credibility bar, distance, time-ago
-- [ ] Swipe-to-vote on sighting list items
+- [x] Swipe-to-vote on sighting list items
 - [x] Plate tracking visual timeline with connecting lines and directional arrows
 
 ## AI Enhancements
@@ -110,8 +110,8 @@
 - [x] Agency identification from markings and insignia
 - [x] Uniform and insignia classification (CBP, ICE, DHS, etc.)
 - [x] Badge number extraction from photos
-- [ ] Auto-redaction of bystander faces in uploaded photos
-- [ ] Anomaly detection for implausible movement patterns
+- [ ] Auto-redaction of bystander faces in uploaded photos (deferred)
+- [x] Anomaly detection for implausible movement patterns
 
 ## Search & Discovery
 
@@ -123,13 +123,13 @@
 ## Notifications & Alerts
 
 - [x] Browser push notifications for watched plates
-- [ ] Proximity alerts for sightings near user location
+- [x] Proximity alerts for sightings near user location
 - [x] Watch/unwatch a specific plate
 
 ## Advanced Features
 
 - [x] Heatmap layer toggle on map
 - [x] Convoy detection (multiple vehicles moving together)
-- [ ] Shareable links for sightings and plate history
-- [ ] CSV/JSON export for plate history
-- [ ] Embeddable map widget
+- [x] Shareable links for sightings and plate history
+- [x] CSV/JSON export for plate history
+- [x] Embeddable map widget

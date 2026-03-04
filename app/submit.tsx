@@ -32,6 +32,8 @@ export default function SubmitScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExtractingPlate, setIsExtractingPlate] = useState(false);
   const [plateConfidence, setPlateConfidence] = useState<number | null>(null);
+  const [detectedPlates, setDetectedPlates] = useState<string[]>([]);
+  const [showPlatePicker, setShowPlatePicker] = useState(false);
 
   const extractPlateMutation = trpc.alpr.extractPlate.useMutation();
 
@@ -87,6 +89,18 @@ export default function SubmitScreen() {
         if (result.plate) {
           setLicensePlate(result.plate);
           setPlateConfidence(result.confidence);
+          // Collect all detected plates for multi-plate picker
+          const allPlates: string[] = [];
+          if (result.plate) allPlates.push(result.plate);
+          if ((result as any).allPlates && Array.isArray((result as any).allPlates)) {
+            for (const p of (result as any).allPlates) {
+              if (p && !allPlates.includes(p)) allPlates.push(p);
+            }
+          }
+          if (allPlates.length > 1) {
+            setDetectedPlates(allPlates);
+            setShowPlatePicker(true);
+          }
         }
       } catch (error) {
         console.warn("Failed to extract plate:", error);
@@ -224,6 +238,36 @@ export default function SubmitScreen() {
               <Text className="text-xs text-muted">
                 AI detected this plate. You can edit if incorrect.
               </Text>
+            )}
+            {/* Multi-plate picker — shown when AI detects more than one plate */}
+            {showPlatePicker && detectedPlates.length > 1 && (
+              <View style={{ backgroundColor: "rgba(59,130,246,0.1)", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: "rgba(59,130,246,0.3)" }}>
+                <Text style={{ color: "#3B82F6", fontSize: 12, fontWeight: "700", marginBottom: 6 }}>
+                  🔍 Multiple plates detected — tap to select:
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                  {detectedPlates.map((plate) => (
+                    <Pressable
+                      key={plate}
+                      onPress={() => {
+                        setLicensePlate(plate);
+                        setShowPlatePicker(false);
+                      }}
+                      style={({ pressed }) => ({
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 6,
+                        backgroundColor: licensePlate === plate ? "#3B82F6" : "rgba(59,130,246,0.2)",
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                    >
+                      <Text style={{ color: licensePlate === plate ? "#fff" : "#3B82F6", fontFamily: "monospace", fontWeight: "700", fontSize: 14 }}>
+                        {plate}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
             )}
           </View>
 
