@@ -38,6 +38,45 @@ todos:
   - id: cutover-cleanup
     content: Execute staged cutover and remove legacy Express/tRPC/Drizzle runtime
     status: completed
+  - id: init-nextjs
+    content: Initialize Next.js project with Tailwind and shadcn/ui
+    status: completed
+  - id: init-convex
+    content: Initialize Convex and define database schema
+    status: completed
+  - id: convex-crud
+    content: Implement Convex database queries and mutations (sightings, votes)
+    status: completed
+  - id: convex-storage
+    content: Implement Convex file storage for image uploads
+    status: completed
+  - id: convex-ai-vision
+    content: Implement Convex actions for AI Vision (OCR, classification)
+    status: completed
+  - id: convex-ai-rag
+    content: Implement Convex actions for RAG (embeddings, vector search, chat)
+    status: completed
+  - id: web-auth
+    content: Implement Device Fingerprinting for anonymous auth in web
+    status: completed
+  - id: ui-map
+    content: Build Map Screen (React Leaflet)
+    status: completed
+  - id: ui-camera
+    content: Build Camera/Capture Screen (HTML5 APIs)
+    status: completed
+  - id: ui-submission
+    content: Build Submission Form
+    status: completed
+  - id: ui-sightings
+    content: Build Sightings List and Detail Screens
+    status: completed
+  - id: ui-chat
+    content: Build RAG Chat Interface
+    status: pending
+  - id: cleanup
+    content: Cleanup old Expo/React Native/tRPC/Drizzle code
+    status: pending
 isProject: false
 ---
 

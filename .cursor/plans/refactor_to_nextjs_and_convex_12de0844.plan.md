@@ -1,6 +1,8 @@
 ---
 name: Refactor to NextJS and Convex
 overview: Refactor the current Expo React Native application into a Next.js web application with a Convex database backend, maintaining anonymous authentication and adding AI features like RAG, anomaly detection, and vehicle image analysis.
+supersededBy: nextjs-convex-migration
+statusNote: This plan has been superseded by the consolidated `nextjs-convex-migration` plan and is kept for historical reference only.
 todos:
   - id: init-nextjs
     content: Initialize Next.js project with Tailwind and shadcn/ui
