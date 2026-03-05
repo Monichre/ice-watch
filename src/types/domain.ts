@@ -1,0 +1,34 @@
+export type VoteType = "upvote" | "downvote" | "flag";
+
+export type Sighting = {
+  _id: string;
+  id: number;
+  licensePlate: string;
+  normalizedPlate: string;
+  vehicleType?: string | null;
+  photoUrl: string;
+  latitude: string;
+  longitude: string;
+  geoBucket: string;
+  locationAccuracy?: string | null;
+  locationAddress?: string | null;
+  notes?: string | null;
+  photoMetadata?: string | null;
+  deviceId?: string | null;
+  imageStorageId?: string;
+  agencyType?: string | null;
+  agencyMarkings?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
+  vehicleColor?: string | null;
+  badgeNumber?: string | null;
+  uniformDescription?: string | null;
+  aiConfidence?: string | null;
+  upvotes: number;
+  downvotes: number;
+  flagCount: number;
+  credibilityScore: string;
+  isHidden: boolean;
+  createdAt: number;
+  updatedAt: number;
+};

@@ -60,3 +60,10 @@ Thumbs.db
 *.tgz
 *.tar.gz
 .cache/
+.next/
+convex/_generated/
+convex/.tmp/
+
+# OpenMemory - IDE/Assistant specific rules
+.cursor/rules/openmemory.mdc
+AGENTS.md

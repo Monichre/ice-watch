@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, expect, it } from "vitest";
 import * as db from "../server/db";
 
-describe("Vehicle Tracker API", () => {
+const hasConvexDeployment = Boolean(process.env.CONVEX_URL || process.env.EXPO_PUBLIC_CONVEX_URL);
+const describeIfConfigured = hasConvexDeployment ? describe : describe.skip;
+
+describeIfConfigured("Vehicle Tracker API", () => {
   let testSightingId: number;
   const testDeviceId = "test-device-12345";
 

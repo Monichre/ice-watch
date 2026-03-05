@@ -1,45 +1,45 @@
-import { Platform } from "react-native";
+import { Platform } from "react-native"
 
-import themeConfig from "@/theme.config";
+import themeConfig from "@/theme.config"
 
-export type ColorScheme = "light" | "dark";
+export type ColorScheme = "light" | "dark"
 
-export const ThemeColors = themeConfig.themeColors;
+export const ThemeColors = themeConfig.themeColors
 
-type ThemeColorTokens = typeof ThemeColors;
-type ThemeColorName = keyof ThemeColorTokens;
-type SchemePalette = Record<ColorScheme, Record<ThemeColorName, string>>;
-type SchemePaletteItem = SchemePalette[ColorScheme];
+type ThemeColorTokens = typeof ThemeColors
+type ThemeColorName = keyof ThemeColorTokens
+type SchemePalette = Record<ColorScheme, Record<ThemeColorName, string>>
+type SchemePaletteItem = SchemePalette[ColorScheme]
 
-function buildSchemePalette(colors: ThemeColorTokens): SchemePalette {
+function buildSchemePalette( colors: ThemeColorTokens ): SchemePalette {
   const palette: SchemePalette = {
     light: {} as SchemePalette["light"],
     dark: {} as SchemePalette["dark"],
   };
 
-  (Object.keys(colors) as ThemeColorName[]).forEach((name) => {
-    const swatch = colors[name];
-    palette.light[name] = swatch.light;
-    palette.dark[name] = swatch.dark;
-  });
+  ( Object.keys( colors ) as ThemeColorName[] ).forEach( ( name ) => {
+    const swatch = colors[name]
+    palette.light[name] = swatch.light
+    palette.dark[name] = swatch.dark
+  } )
 
-  return palette;
+  return palette
 }
 
-export const SchemeColors = buildSchemePalette(ThemeColors);
+export const SchemeColors = buildSchemePalette( ThemeColors )
 
 type RuntimePalette = SchemePaletteItem & {
-  text: string;
-  background: string;
-  tint: string;
-  icon: string;
-  tabIconDefault: string;
-  tabIconSelected: string;
-  border: string;
-};
+  text: string
+  background: string
+  tint: string
+  icon: string
+  tabIconDefault: string
+  tabIconSelected: string
+  border: string
+}
 
-function buildRuntimePalette(scheme: ColorScheme): RuntimePalette {
-  const base = SchemeColors[scheme];
+function buildRuntimePalette( scheme: ColorScheme ): RuntimePalette {
+  const base = SchemeColors[scheme]
   return {
     ...base,
     text: base.foreground,
@@ -49,17 +49,17 @@ function buildRuntimePalette(scheme: ColorScheme): RuntimePalette {
     tabIconDefault: base.muted,
     tabIconSelected: base.primary,
     border: base.border,
-  };
+  }
 }
 
 export const Colors = {
-  light: buildRuntimePalette("light"),
-  dark: buildRuntimePalette("dark"),
-} satisfies Record<ColorScheme, RuntimePalette>;
+  light: buildRuntimePalette( "light" ),
+  dark: buildRuntimePalette( "dark" ),
+} satisfies Record<ColorScheme, RuntimePalette>
 
-export type ThemeColorPalette = (typeof Colors)[ColorScheme];
+export type ThemeColorPalette = ( typeof Colors )[ColorScheme]
 
-export const Fonts = Platform.select({
+export const Fonts = Platform.select( {
   ios: {
     /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: "system-ui",
@@ -77,9 +77,9 @@ export const Fonts = Platform.select({
     mono: "monospace",
   },
   web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+    sans: "'Manrope', 'Avenir Next', 'Segoe UI', sans-serif",
+    serif: "'Spectral', Georgia, serif",
+    rounded: "'Manrope', 'Avenir Next Rounded', sans-serif",
+    mono: "'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
   },
-});
+} )

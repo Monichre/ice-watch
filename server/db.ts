@@ -1,21 +1,162 @@
-import { eq, desc, and, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, sightings, votes, InsertSighting, InsertVote } from "../drizzle/schema";
+import { ConvexHttpClient } from "convex/browser";
+import { InsertSighting, InsertUser, InsertVote, User } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+type VoteType = "upvote" | "downvote" | "flag";
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
+type ConvexUser = {
+  id: number;
+  openId: string;
+  name?: string | null;
+  email?: string | null;
+  loginMethod?: string | null;
+  role: "user" | "admin";
+  createdAt: number;
+  updatedAt: number;
+  lastSignedIn: number;
+};
+
+type ConvexSighting = {
+  id: number;
+  licensePlate: string;
+  vehicleType?: string | null;
+  photoUrl: string;
+  latitude: string;
+  longitude: string;
+  locationAccuracy?: string | null;
+  locationAddress?: string | null;
+  notes?: string | null;
+  photoMetadata?: string | null;
+  deviceId?: string | null;
+  agencyType?: string | null;
+  agencyMarkings?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
+  vehicleColor?: string | null;
+  badgeNumber?: string | null;
+  uniformDescription?: string | null;
+  aiConfidence?: string | null;
+  upvotes: number;
+  downvotes: number;
+  flagCount: number;
+  credibilityScore: string;
+  isHidden: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type ConvexVote = {
+  id: number;
+  sightingId: number;
+  deviceId: string;
+  voteType: VoteType;
+  createdAt: number;
+  updatedAt: number;
+};
+
+let _client: ConvexHttpClient | null = null;
+let _clientUrl: string | null = null;
+let _warnedMissingConvexUrl = false;
+
+function getConvexClient(): ConvexHttpClient | null {
+  const convexUrl = process.env.CONVEX_URL ?? process.env.EXPO_PUBLIC_CONVEX_URL ?? "";
+
+  if (!convexUrl) {
+    if (!_warnedMissingConvexUrl) {
+      console.warn("[Convex] CONVEX_URL is not set. Data operations are disabled.");
+      _warnedMissingConvexUrl = true;
     }
+    return null;
   }
-  return _db;
+
+  if (!_client || _clientUrl !== convexUrl) {
+    _client = new ConvexHttpClient(convexUrl);
+    _clientUrl = convexUrl;
+  }
+
+  return _client;
+}
+
+function toMillis(value: Date | string | number | undefined | null): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function toDate(value: number | string | Date | undefined | null): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === "number") return new Date(value);
+  if (typeof value === "string") return new Date(value);
+  return new Date();
+}
+
+function normalizeOptionalString(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return String(value);
+}
+
+function normalizeRequiredString(value: unknown): string {
+  return String(value ?? "");
+}
+
+function mapUser(record: ConvexUser): User {
+  return {
+    id: record.id,
+    openId: record.openId,
+    name: record.name ?? null,
+    email: record.email ?? null,
+    loginMethod: record.loginMethod ?? null,
+    role: record.role,
+    createdAt: toDate(record.createdAt),
+    updatedAt: toDate(record.updatedAt),
+    lastSignedIn: toDate(record.lastSignedIn),
+  };
+}
+
+function mapSighting(record: ConvexSighting) {
+  return {
+    ...record,
+    vehicleType: record.vehicleType ?? null,
+    locationAccuracy: record.locationAccuracy ?? null,
+    locationAddress: record.locationAddress ?? null,
+    notes: record.notes ?? null,
+    photoMetadata: record.photoMetadata ?? null,
+    deviceId: record.deviceId ?? null,
+    agencyType: record.agencyType ?? null,
+    agencyMarkings: record.agencyMarkings ?? null,
+    vehicleMake: record.vehicleMake ?? null,
+    vehicleModel: record.vehicleModel ?? null,
+    vehicleColor: record.vehicleColor ?? null,
+    badgeNumber: record.badgeNumber ?? null,
+    uniformDescription: record.uniformDescription ?? null,
+    aiConfidence: record.aiConfidence ?? null,
+    createdAt: toDate(record.createdAt),
+    updatedAt: toDate(record.updatedAt),
+  };
+}
+
+async function convexQuery<T>(name: string, args?: Record<string, unknown>): Promise<T> {
+  const client = getConvexClient();
+  if (!client) {
+    throw new Error("Convex not configured");
+  }
+  return (await client.query(name as any, args ?? {})) as T;
+}
+
+async function convexMutation<T>(name: string, args?: Record<string, unknown>): Promise<T> {
+  const client = getConvexClient();
+  if (!client) {
+    throw new Error("Convex not configured");
+  }
+  return (await client.mutation(name as any, args ?? {})) as T;
+}
+
+// Lazily create the Convex client so local tooling can run without a backend.
+export async function getDb() {
+  return getConvexClient();
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -23,70 +164,37 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     throw new Error("User openId is required for upsert");
   }
 
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
+  const client = await getDb();
+  if (!client) {
+    console.warn("[Convex] Cannot upsert user: Convex not available");
     return;
   }
 
   try {
-    const values: InsertUser = {
+    await convexMutation("users:upsert", {
       openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
+      name: normalizeOptionalString(user.name),
+      email: normalizeOptionalString(user.email),
+      loginMethod: normalizeOptionalString(user.loginMethod),
+      role: user.role,
+      lastSignedIn: toMillis(user.lastSignedIn),
+      ownerOpenId: ENV.ownerOpenId || undefined,
     });
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
+    console.error("[Convex] Failed to upsert user:", error);
     throw error;
   }
 }
 
 export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
+  const client = await getDb();
+  if (!client) {
+    console.warn("[Convex] Cannot get user: Convex not available");
     return undefined;
   }
 
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
+  const result = await convexQuery<ConvexUser | null>("users:getByOpenId", { openId });
+  return result ? mapUser(result) : undefined;
 }
 
 // ============================================================================
@@ -102,53 +210,59 @@ export async function getAllSightings(options?: {
   minCredibility?: number;
   hideHidden?: boolean;
 }) {
-  const db = await getDb();
-  if (!db) return [];
+  const client = await getDb();
+  if (!client) return [];
 
-  let query = db.select().from(sightings);
+  const rows = await convexQuery<ConvexSighting[]>("sightings:list", {
+    limit: options?.limit,
+    offset: options?.offset,
+    minCredibility: options?.minCredibility,
+    hideHidden: options?.hideHidden,
+  });
 
-  if (options?.hideHidden) {
-    query = query.where(eq(sightings.isHidden, false)) as any;
-  }
-
-  if (options?.minCredibility !== undefined) {
-    const credFilter = sql`${sightings.credibilityScore} >= ${options.minCredibility}`;
-    query = query.where(credFilter) as any;
-  }
-
-  query = query.orderBy(desc(sightings.createdAt)) as any;
-
-  if (options?.limit) {
-    query = query.limit(options.limit) as any;
-  }
-
-  if (options?.offset) {
-    query = query.offset(options.offset) as any;
-  }
-
-  return query;
+  return rows.map(mapSighting);
 }
 
 /**
  * Get a single sighting by ID
  */
 export async function getSightingById(id: number) {
-  const db = await getDb();
-  if (!db) return null;
+  const client = await getDb();
+  if (!client) return null;
 
-  const results = await db.select().from(sightings).where(eq(sightings.id, id));
-  return results[0] || null;
+  const result = await convexQuery<ConvexSighting | null>("sightings:getById", { id });
+  return result ? mapSighting(result) : null;
 }
 
 /**
  * Create a new sighting
  */
 export async function createSighting(data: InsertSighting) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const client = await getDb();
+  if (!client) throw new Error("Convex not configured");
 
-  const result = await db.insert(sightings).values(data);
-  return Number(result[0].insertId);
+  const result = await convexMutation<{ id: number }>("sightings:create", {
+    licensePlate: normalizeRequiredString(data.licensePlate),
+    vehicleType: normalizeOptionalString(data.vehicleType),
+    photoUrl: normalizeRequiredString(data.photoUrl),
+    latitude: normalizeRequiredString(data.latitude),
+    longitude: normalizeRequiredString(data.longitude),
+    locationAccuracy: normalizeOptionalString(data.locationAccuracy),
+    locationAddress: normalizeOptionalString(data.locationAddress),
+    notes: normalizeOptionalString(data.notes),
+    photoMetadata: normalizeOptionalString(data.photoMetadata),
+    deviceId: normalizeOptionalString(data.deviceId),
+    agencyType: normalizeOptionalString(data.agencyType),
+    agencyMarkings: normalizeOptionalString(data.agencyMarkings),
+    vehicleMake: normalizeOptionalString(data.vehicleMake),
+    vehicleModel: normalizeOptionalString(data.vehicleModel),
+    vehicleColor: normalizeOptionalString(data.vehicleColor),
+    badgeNumber: normalizeOptionalString(data.badgeNumber),
+    uniformDescription: normalizeOptionalString(data.uniformDescription),
+    aiConfidence: normalizeOptionalString(data.aiConfidence),
+  });
+
+  return result.id;
 }
 
 /**
@@ -160,40 +274,29 @@ export async function updateSightingVotes(
   downvotes: number,
   flagCount: number
 ) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const client = await getDb();
+  if (!client) throw new Error("Convex not configured");
 
-  // Calculate credibility score
-  const totalVotes = upvotes + downvotes;
-  const credibilityScore = totalVotes > 0 ? (upvotes / totalVotes) * 100 : 0;
-
-  // Auto-hide if credibility is too low and has enough votes
-  const isHidden = totalVotes >= 5 && credibilityScore < 40;
-
-  await db
-    .update(sightings)
-    .set({
-      upvotes,
-      downvotes,
-      flagCount,
-      credibilityScore: credibilityScore.toFixed(2),
-      isHidden,
-    })
-    .where(eq(sightings.id, sightingId));
+  await convexMutation("sightings:updateVotes", {
+    sightingId,
+    upvotes,
+    downvotes,
+    flagCount,
+  });
 }
 
 /**
  * Search sightings by license plate
  */
 export async function searchSightingsByLicensePlate(licensePlate: string) {
-  const db = await getDb();
-  if (!db) return [];
+  const client = await getDb();
+  if (!client) return [];
 
-  return db
-    .select()
-    .from(sightings)
-    .where(sql`${sightings.licensePlate} LIKE ${`%${licensePlate}%`}`)
-    .orderBy(desc(sightings.createdAt));
+  const rows = await convexQuery<ConvexSighting[]>("sightings:searchByLicensePlate", {
+    licensePlate,
+  });
+
+  return rows.map(mapSighting);
 }
 
 /**
@@ -204,38 +307,34 @@ export async function getSightingsNearLocation(
   longitude: number,
   radiusKm: number = 10
 ) {
-  const db = await getDb();
-  if (!db) return [];
+  const client = await getDb();
+  if (!client) return [];
 
-  // Haversine formula for distance calculation
-  const distanceFormula = sql`(
-    6371 * acos(
-      cos(radians(${latitude})) *
-      cos(radians(${sightings.latitude})) *
-      cos(radians(${sightings.longitude}) - radians(${longitude})) +
-      sin(radians(${latitude})) *
-      sin(radians(${sightings.latitude}))
-    )
-  )`;
+  const rows = await convexQuery<
+    Array<{
+      id: number;
+      licensePlate: string;
+      vehicleType: string | null;
+      photoUrl: string;
+      latitude: string;
+      longitude: string;
+      locationAddress: string | null;
+      upvotes: number;
+      downvotes: number;
+      credibilityScore: string;
+      createdAt: number;
+      distance: number;
+    }>
+  >("sightings:nearby", {
+    latitude,
+    longitude,
+    radiusKm,
+  });
 
-  return db
-    .select({
-      id: sightings.id,
-      licensePlate: sightings.licensePlate,
-      vehicleType: sightings.vehicleType,
-      photoUrl: sightings.photoUrl,
-      latitude: sightings.latitude,
-      longitude: sightings.longitude,
-      locationAddress: sightings.locationAddress,
-      upvotes: sightings.upvotes,
-      downvotes: sightings.downvotes,
-      credibilityScore: sightings.credibilityScore,
-      createdAt: sightings.createdAt,
-      distance: distanceFormula.as("distance"),
-    })
-    .from(sightings)
-    .where(sql`${distanceFormula} <= ${radiusKm}`)
-    .orderBy(sql`distance ASC`);
+  return rows.map((row) => ({
+    ...row,
+    createdAt: toDate(row.createdAt),
+  }));
 }
 
 // ============================================================================
@@ -246,105 +345,84 @@ export async function getSightingsNearLocation(
  * Get a user's vote for a specific sighting
  */
 export async function getUserVote(deviceId: string, sightingId: number) {
-  const db = await getDb();
-  if (!db) return null;
+  const client = await getDb();
+  if (!client) return null;
 
-  const results = await db
-    .select()
-    .from(votes)
-    .where(and(eq(votes.deviceId, deviceId), eq(votes.sightingId, sightingId)));
+  const result = await convexQuery<ConvexVote | null>("votes:getUserVote", {
+    deviceId,
+    sightingId,
+  });
 
-  return results[0] || null;
+  if (!result) return null;
+
+  return {
+    ...result,
+    createdAt: toDate(result.createdAt),
+    updatedAt: toDate(result.updatedAt),
+  };
 }
 
 /**
  * Cast or update a vote
  */
 export async function castVote(data: InsertVote) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const client = await getDb();
+  if (!client) throw new Error("Convex not configured");
 
-  // Check if vote already exists
-  const existingVote = await getUserVote(data.deviceId, data.sightingId);
-
-  if (existingVote) {
-    // Update existing vote
-    await db
-      .update(votes)
-      .set({ voteType: data.voteType })
-      .where(and(eq(votes.deviceId, data.deviceId), eq(votes.sightingId, data.sightingId)));
-  } else {
-    // Insert new vote
-    await db.insert(votes).values(data);
-  }
-
-  // Recalculate sighting vote counts
-  await recalculateSightingVotes(data.sightingId);
+  await convexMutation("votes:cast", {
+    deviceId: data.deviceId,
+    sightingId: data.sightingId,
+    voteType: data.voteType as VoteType,
+    nowMs: Date.now(),
+  });
 }
 
 /**
  * Remove a vote
  */
 export async function removeVote(deviceId: string, sightingId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const client = await getDb();
+  if (!client) throw new Error("Convex not configured");
 
-  await db.delete(votes).where(and(eq(votes.deviceId, deviceId), eq(votes.sightingId, sightingId)));
-
-  // Recalculate sighting vote counts
-  await recalculateSightingVotes(sightingId);
-}
-
-/**
- * Recalculate vote counts for a sighting
- */
-async function recalculateSightingVotes(sightingId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const allVotes = await db.select().from(votes).where(eq(votes.sightingId, sightingId));
-
-  const upvotes = allVotes.filter((v) => v.voteType === "upvote").length;
-  const downvotes = allVotes.filter((v) => v.voteType === "downvote").length;
-  const flagCount = allVotes.filter((v) => v.voteType === "flag").length;
-
-  await updateSightingVotes(sightingId, upvotes, downvotes, flagCount);
+  await convexMutation("votes:remove", {
+    deviceId,
+    sightingId,
+    nowMs: Date.now(),
+  });
 }
 
 /**
  * Get vote counts for a sighting
  */
 export async function getVoteCounts(sightingId: number) {
-  const db = await getDb();
-  if (!db) return { upvotes: 0, downvotes: 0, flagCount: 0 };
+  const client = await getDb();
+  if (!client) return { upvotes: 0, downvotes: 0, flagCount: 0 };
 
-  const allVotes = await db.select().from(votes).where(eq(votes.sightingId, sightingId));
-
-  return {
-    upvotes: allVotes.filter((v) => v.voteType === "upvote").length,
-    downvotes: allVotes.filter((v) => v.voteType === "downvote").length,
-    flagCount: allVotes.filter((v) => v.voteType === "flag").length,
-  };
+  return await convexQuery<{ upvotes: number; downvotes: number; flagCount: number }>("votes:getCounts", {
+    sightingId,
+  });
 }
 
 /**
  * Get all tracked plates with sighting counts
  */
 export async function getAllTrackedPlates(limit: number = 50) {
-  const db = await getDb();
-  if (!db) return [];
+  const client = await getDb();
+  if (!client) return [];
 
-  const result = await db
-    .select({
-      licensePlate: sightings.licensePlate,
-      sightingCount: sql<number>`COUNT(*)`,
-      lastSeen: sql<Date>`MAX(${sightings.createdAt})`,
-      avgCredibility: sql<number>`AVG(${sightings.credibilityScore})`,
-    })
-    .from(sightings)
-    .groupBy(sightings.licensePlate)
-    .orderBy(sql`lastSeen DESC`)
-    .limit(limit);
+  const rows = await convexQuery<
+    Array<{
+      licensePlate: string;
+      sightingCount: number;
+      lastSeen: number;
+      avgCredibility: number;
+    }>
+  >("sightings:getAllTrackedPlates", {
+    limit,
+  });
 
-  return result;
+  return rows.map((row) => ({
+    ...row,
+    lastSeen: toDate(row.lastSeen),
+  }));
 }
